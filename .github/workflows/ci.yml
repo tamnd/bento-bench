@@ -74,8 +74,10 @@ jobs:
           bun-version: latest
 
       - name: Build bento
+        # GOPROXY=direct fetches bento straight from the VCS so the benchmark
+        # always runs the true latest main, not a proxy-cached older commit.
         run: |
-          go install github.com/tamnd/bento/cmd/bento@main
+          GOPROXY=direct go install github.com/tamnd/bento/cmd/bento@main
           echo "BENTO_BIN=$(go env GOPATH)/bin/bento" >> "$GITHUB_ENV"
 
       - name: Versions
