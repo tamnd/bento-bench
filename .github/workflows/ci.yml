@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Re-run weekly so runtime updates that shift performance surface on their own.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Build the harness and keep it healthy on its own terms.
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt -s -w:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test -race ./...
+      - uses: golangci/golangci-lint-action@v9.2.1
+        with:
+          version: latest
+
+  # The benchmark run itself: install every runtime, build bento from source,
+  # and time the same workloads on all four.
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build bento
+        run: |
+          go install github.com/tamnd/bento/cmd/bento@main
+          echo "BENTO_BIN=$(go env GOPATH)/bin/bento" >> "$GITHUB_ENV"
+
+      - name: Versions
+        run: |
+          echo "node $(node --version)"
+          echo "deno $(deno --version | head -1)"
+          echo "bun  $(bun --version)"
+          echo "bento $($BENTO_BIN --version || true)"
+
+      - name: Run benchmark
+        run: |
+          go run ./cmd/bento-bench \
+            --runs "${{ vars.RUNS || '15' }}" \
+            --warmup 3 \
+            --json results.json \
+            --markdown results.md
+
+      - name: Job summary
+        if: always()
+        run: cat results.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: |
+            results.json
+            results.md
