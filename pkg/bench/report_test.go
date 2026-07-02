@@ -12,18 +12,18 @@ func sampleResults() []WorkloadResult {
 			Workload: "fib",
 			Category: "compute",
 			Measurements: []Measurement{
-				{Runtime: "node", Stats: Stats{Median: 40 * time.Millisecond}},
-				{Runtime: "bun", Stats: Stats{Median: 30 * time.Millisecond}},
-				{Runtime: "bento", Stats: Stats{Median: 60 * time.Millisecond}},
+				{Runtime: "node", Stats: Stats{Median: 40 * time.Millisecond, MedianRSS: 60 * 1024 * 1024}},
+				{Runtime: "bun", Stats: Stats{Median: 30 * time.Millisecond, MedianRSS: 55 * 1024 * 1024}},
+				{Runtime: "bento", Stats: Stats{Median: 60 * time.Millisecond, MedianRSS: 12 * 1024 * 1024}},
 			},
 		},
 		{
 			Workload: "hello",
 			Category: "startup",
 			Measurements: []Measurement{
-				{Runtime: "node", Stats: Stats{Median: 45 * time.Millisecond}},
+				{Runtime: "node", Stats: Stats{Median: 45 * time.Millisecond, MedianRSS: 40 * 1024 * 1024}},
 				{Runtime: "bun", Failed: true, Note: "timeout"},
-				{Runtime: "bento", Stats: Stats{Median: 12 * time.Millisecond}},
+				{Runtime: "bento", Stats: Stats{Median: 12 * time.Millisecond, MedianRSS: 8 * 1024 * 1024}},
 			},
 		},
 	}
@@ -70,6 +70,23 @@ func TestWriteReport(t *testing.T) {
 	}
 }
 
+func TestWriteReportMemory(t *testing.T) {
+	var b strings.Builder
+	if err := WriteReport(&b, sampleResults(), Options{Runs: 10, Warmup: 2}); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if !strings.Contains(out, "Median peak memory") {
+		t.Error("report missing memory section")
+	}
+	if !strings.Contains(out, "*12.0MB") {
+		t.Error("report should star the leanest memory cell (bento on fib)")
+	}
+	if !strings.Contains(out, "Startup cost") {
+		t.Error("report missing startup section")
+	}
+}
+
 func TestWriteMarkdown(t *testing.T) {
 	var b strings.Builder
 	if err := WriteMarkdown(&b, sampleResults(), Options{Runs: 10, Warmup: 2}); err != nil {
@@ -79,7 +96,47 @@ func TestWriteMarkdown(t *testing.T) {
 	if !strings.Contains(out, "| workload |") {
 		t.Error("markdown missing table header")
 	}
+	if !strings.Contains(out, "## Peak memory") {
+		t.Error("markdown missing memory table")
+	}
+	if !strings.Contains(out, "## Startup cost") {
+		t.Error("markdown missing startup section")
+	}
 	if !strings.Contains(out, "bento versus the fastest other runtime") {
 		t.Error("markdown missing speedup section")
+	}
+	if strings.Contains(out, "## Compile step") {
+		t.Error("single-phase results should not render a compile section")
+	}
+}
+
+// TestWriteMarkdownCompile pins that a two-phase (AOT) measurement renders the
+// compile-step table, so the cost of compiling to a binary is reported next to
+// the binary's speed.
+func TestWriteMarkdownCompile(t *testing.T) {
+	results := []WorkloadResult{
+		{
+			Workload: "fib",
+			Category: "compute",
+			Measurements: []Measurement{
+				{Runtime: "node", Stats: Stats{Median: 40 * time.Millisecond}},
+				{
+					Runtime: "bento",
+					Stats:   Stats{Median: 5 * time.Millisecond},
+					Compile: &Stats{Median: 250 * time.Millisecond},
+				},
+			},
+		},
+	}
+	var b strings.Builder
+	if err := WriteMarkdown(&b, results, Options{Runs: 10, Warmup: 2}); err != nil {
+		t.Fatal(err)
+	}
+	out := b.String()
+	if !strings.Contains(out, "## Compile step") {
+		t.Fatal("markdown missing compile section for a two-phase runtime")
+	}
+	if !strings.Contains(out, "250.0ms") {
+		t.Error("compile section missing the bento compile median")
 	}
 }

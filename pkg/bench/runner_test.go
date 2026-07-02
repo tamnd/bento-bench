@@ -31,13 +31,27 @@ func TestDiscoverWorkloads(t *testing.T) {
 	}
 }
 
-func TestRuntimeCommand(t *testing.T) {
+func TestRuntimeRunArgs(t *testing.T) {
 	rt := Runtime{Name: "deno", Bin: "deno", Args: []string{"run", "--quiet"}}
-	bin, args := rt.command("/tmp/x.mjs")
-	if bin != "deno" {
-		t.Errorf("bin = %q, want deno", bin)
-	}
+	args := rt.runArgs("/tmp/x.mjs")
 	want := []string{"run", "--quiet", "/tmp/x.mjs"}
+	if len(args) != len(want) {
+		t.Fatalf("args = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}
+
+func TestCompileStepCommand(t *testing.T) {
+	c := &CompileStep{Bin: "bento", Args: []string{"build"}}
+	bin, args := c.command("/tmp/w.ts", "/tmp/out/w")
+	if bin != "bento" {
+		t.Errorf("bin = %q, want bento", bin)
+	}
+	want := []string{"build", "-o", "/tmp/out/w", "/tmp/w.ts"}
 	if len(args) != len(want) {
 		t.Fatalf("args = %v, want %v", args, want)
 	}

@@ -71,10 +71,14 @@ type Options struct {
 	Timeout time.Duration // per-run wall-clock limit
 }
 
-// Measurement is the timing of one runtime on one workload.
+// Measurement is the timing of one runtime on one workload. For a two-phase
+// runtime (bento's AOT path), Compile carries the separate timing of the
+// compile step and Stats is the timing of the produced binary; for a single
+// phase runtime Compile is nil and Stats is the whole invocation.
 type Measurement struct {
 	Runtime string `json:"runtime"`
 	Stats   Stats  `json:"stats"`
+	Compile *Stats `json:"compile,omitempty"`
 	Failed  bool   `json:"failed"`
 	Note    string `json:"note,omitempty"`
 }
@@ -86,14 +90,15 @@ type WorkloadResult struct {
 	Measurements []Measurement `json:"measurements"`
 }
 
-// timeOnce runs a workload once under a runtime and returns the wall-clock
-// duration. A nonzero exit, a timeout, or a spawn failure is reported as an
-// error so the caller can mark the runtime as failing this workload.
-func timeOnce(ctx context.Context, rt Runtime, workload string, timeout time.Duration) (time.Duration, error) {
+// runCommand runs one command to completion and returns its wall-clock duration
+// and peak resident memory. A nonzero exit, a timeout, or a spawn failure is an
+// error so the caller can mark the runtime as failing this workload. Memory is
+// read from the finished process rusage, which is zero when the platform cannot
+// report it.
+func runCommand(ctx context.Context, bin string, args []string, timeout time.Duration) (sample, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	bin, args := rt.command(workload)
 	cmd := exec.CommandContext(runCtx, bin, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 	cmd.Stdout = nil
@@ -103,35 +108,83 @@ func timeOnce(ctx context.Context, rt Runtime, workload string, timeout time.Dur
 	err := cmd.Run()
 	elapsed := time.Since(start)
 
+	s := sample{dur: elapsed, rss: maxRSSBytes(cmd.ProcessState)}
+
 	if runCtx.Err() == context.DeadlineExceeded {
-		return elapsed, errors.New("timeout")
+		return s, errors.New("timeout")
 	}
 	if err != nil {
-		return elapsed, err
+		return s, err
 	}
-	return elapsed, nil
+	return s, nil
 }
 
-// measure runs the warmup and timed passes for one runtime on one workload.
-func measure(ctx context.Context, rt Runtime, w Workload, opts Options) Measurement {
+// collect runs one command through the warmup and timed passes and reduces the
+// timed samples to Stats. A failure in any pass stops the collection and returns
+// the error, which the caller turns into a failed measurement with a note.
+func collect(ctx context.Context, bin string, args []string, opts Options) (Stats, error) {
 	for i := 0; i < opts.Warmup; i++ {
-		if _, err := timeOnce(ctx, rt, w.Path, opts.Timeout); err != nil {
-			return Measurement{Runtime: rt.Name, Failed: true, Note: warmupNote(err)}
+		if _, err := runCommand(ctx, bin, args, opts.Timeout); err != nil {
+			return Stats{}, err
 		}
 	}
-	samples := make([]time.Duration, 0, opts.Runs)
+	samples := make([]sample, 0, opts.Runs)
 	for i := 0; i < opts.Runs; i++ {
-		d, err := timeOnce(ctx, rt, w.Path, opts.Timeout)
+		s, err := runCommand(ctx, bin, args, opts.Timeout)
 		if err != nil {
-			return Measurement{Runtime: rt.Name, Failed: true, Note: err.Error()}
+			return Stats{}, err
 		}
-		samples = append(samples, d)
+		samples = append(samples, s)
 	}
-	return Measurement{Runtime: rt.Name, Stats: summarize(samples)}
+	return summarize(samples), nil
 }
 
-func warmupNote(err error) string {
-	return "warmup failed: " + err.Error()
+// measure runs the warmup and timed passes for one runtime on one workload. A
+// single-phase runtime times the workload directly. A two-phase runtime first
+// times the compile step, then times the binary it produced; a compile failure
+// (which is what surfaces while bento's AOT build is still a stub) fails the
+// whole measurement with the compiler's own message, rather than falling back to
+// a different path and reporting a number the AOT column did not earn.
+func measure(ctx context.Context, rt Runtime, w Workload, opts Options) Measurement {
+	if rt.Compile == nil {
+		stats, err := collect(ctx, rt.Bin, rt.runArgs(w.Path), opts)
+		if err != nil {
+			return failed(rt.Name, err)
+		}
+		return Measurement{Runtime: rt.Name, Stats: stats}
+	}
+
+	bin, cleanup, err := tempBinaryPath(w)
+	if err != nil {
+		return failed(rt.Name, err)
+	}
+	defer cleanup()
+
+	cbin, cargs := rt.Compile.command(w.Path, bin)
+	compile, err := collect(ctx, cbin, cargs, opts)
+	if err != nil {
+		return failed(rt.Name, errors.New("compile: "+err.Error()))
+	}
+	run, err := collect(ctx, bin, nil, opts)
+	if err != nil {
+		return failed(rt.Name, errors.New("run: "+err.Error()))
+	}
+	return Measurement{Runtime: rt.Name, Stats: run, Compile: &compile}
+}
+
+// tempBinaryPath returns a path for a compiled workload binary and a cleanup
+// that removes its directory. The name carries the workload so a stray file left
+// by a killed run is still identifiable.
+func tempBinaryPath(w Workload) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "bento-bench-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	return filepath.Join(dir, w.Name), func() { _ = os.RemoveAll(dir) }, nil
+}
+
+func failed(name string, err error) Measurement {
+	return Measurement{Runtime: name, Failed: true, Note: err.Error()}
 }
 
 // Run measures every available runtime against every workload and returns one

@@ -17,12 +17,13 @@ import (
 
 func main() {
 	var (
-		dir     = flag.String("workloads", "workloads", "directory of workload programs")
-		warmup  = flag.Int("warmup", 2, "discarded runs before timing")
-		runs    = flag.Int("runs", 10, "timed runs per workload")
-		timeout = flag.Duration("timeout", 60*time.Second, "per-run timeout")
-		jsonOut = flag.String("json", "", "write raw results as JSON to this path")
-		mdOut   = flag.String("markdown", "", "write a Markdown summary to this path")
+		dir      = flag.String("workloads", "workloads", "directory of workload programs")
+		warmup   = flag.Int("warmup", 2, "discarded runs before timing")
+		runs     = flag.Int("runs", 10, "timed runs per workload")
+		timeout  = flag.Duration("timeout", 60*time.Second, "per-run timeout")
+		jsonOut  = flag.String("json", "", "write raw results as JSON to this path")
+		mdOut    = flag.String("markdown", "", "write a Markdown summary to this path")
+		bentoAOT = flag.Bool("bento-aot", false, "measure bento by compiling each workload to a Go binary and timing the binary, instead of the interpreter")
 	)
 	flag.Parse()
 
@@ -41,7 +42,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	runtimes := bench.DefaultRuntimes()
+	runtimes := bench.DefaultRuntimes(*bentoAOT)
 	reportAvailability(runtimes)
 
 	opts := bench.Options{Warmup: *warmup, Runs: *runs, Timeout: *timeout}

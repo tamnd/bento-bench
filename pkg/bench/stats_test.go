@@ -12,12 +12,12 @@ func TestSummarizeEmpty(t *testing.T) {
 }
 
 func TestSummarize(t *testing.T) {
-	samples := []time.Duration{
-		10 * time.Millisecond,
-		20 * time.Millisecond,
-		30 * time.Millisecond,
-		40 * time.Millisecond,
-		50 * time.Millisecond,
+	samples := []sample{
+		{dur: 10 * time.Millisecond, rss: 100},
+		{dur: 20 * time.Millisecond, rss: 200},
+		{dur: 30 * time.Millisecond, rss: 300},
+		{dur: 40 * time.Millisecond, rss: 400},
+		{dur: 50 * time.Millisecond, rss: 500},
 	}
 	s := summarize(samples)
 	if s.Runs != 5 {
@@ -34,6 +34,26 @@ func TestSummarize(t *testing.T) {
 	}
 	if s.Median != 30*time.Millisecond {
 		t.Errorf("median = %v, want 30ms", s.Median)
+	}
+	if s.MinRSS != 100 || s.MedianRSS != 300 || s.MaxRSS != 500 {
+		t.Errorf("rss min/median/max = %d/%d/%d, want 100/300/500", s.MinRSS, s.MedianRSS, s.MaxRSS)
+	}
+}
+
+// TestSummarizeMissingRSS pins that runs with no memory reading (rss zero, as on
+// a platform without rusage) are dropped from the memory summary, leaving it
+// zero rather than pulling the median down with false zeros.
+func TestSummarizeMissingRSS(t *testing.T) {
+	samples := []sample{
+		{dur: 10 * time.Millisecond, rss: 0},
+		{dur: 20 * time.Millisecond, rss: 0},
+	}
+	s := summarize(samples)
+	if s.MedianRSS != 0 {
+		t.Errorf("medianRSS = %d, want 0 when no run reported memory", s.MedianRSS)
+	}
+	if s.Runs != 2 {
+		t.Errorf("runs = %d, want 2 (timing still counts)", s.Runs)
 	}
 }
 
