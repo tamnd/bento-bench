@@ -4,8 +4,8 @@
 // single-precision operations, not the transcendental ones, so the result is
 // deterministic to the last bit and the checksum must match across runtimes. This
 // isolates the 32-bit coercion path from the rest of a program. The checksum is
-// -1303942704 on node, bun, deno, and bento, and every runtime agrees on it.
-const passes = 400;
+// 1653160564 on node, bun, deno, and bento, and every runtime agrees on it.
+const passes = 100;
 let acc = 0;
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 5000; i++) {

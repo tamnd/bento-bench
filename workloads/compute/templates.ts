@@ -5,9 +5,9 @@
 // checksum through its length and a couple of sampled code units, an O(1)
 // reduction so the timing tracks template building rather than a per-character
 // scan. The result is deterministic to the last bit, so it must match across
-// runtimes. The checksum is 1174080576 on node, bun, deno,
+// runtimes. The checksum is 484900608 on node, bun, deno,
 // and bento. Every runtime agrees on it.
-const passes = 300;
+const passes = 80;
 let acc = 0;
 const words = ["alpha", "beta", "gamma", "delta"];
 for (let pass = 0; pass < passes; pass++) {

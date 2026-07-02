@@ -18,10 +18,10 @@ import (
 func main() {
 	var (
 		dir     = flag.String("workloads", "workloads", "directory of workload programs")
-		warmup  = flag.Int("warmup", 2, "discarded runs before timing")
-		runs    = flag.Int("runs", 10, "timed runs per workload")
+		warmup  = flag.Int("warmup", 1, "discarded runs before timing")
+		runs    = flag.Int("runs", 5, "timed runs per workload")
 		timeout = flag.Duration("timeout", 60*time.Second, "per-run timeout")
-		budget  = flag.Duration("budget", 0, "soft wall-clock ceiling on the timed runs of one runtime on one workload; a slow runtime stops early after enough samples instead of taking all --runs (0 means no ceiling)")
+		budget  = flag.Duration("budget", 1500*time.Millisecond, "soft wall-clock ceiling on the timed runs of one runtime on one workload; a slow runtime stops early after enough samples instead of taking all --runs (0 means no ceiling). The default keeps a full workload round across every runtime under about ten seconds; pass --budget 0 --runs 20 for a high-fidelity publish run")
 		jsonOut = flag.String("json", "", "write raw results as JSON to this path")
 		mdOut   = flag.String("markdown", "", "write a Markdown summary to this path")
 		skip    = flag.String("skip", "", "comma-separated runtime names to leave out of this run (for example \"bento\" to skip the ahead-of-time build on a runner without the Go toolchain)")

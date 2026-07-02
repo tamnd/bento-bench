@@ -4,8 +4,8 @@
 // string construction from the rest of a program. Each built string folds into a
 // 32-bit checksum through its first and last code units, an O(1) reduction so the
 // timing tracks the construction rather than a per-character scan. The result is
-// deterministic to the last bit, so it must match across runtimes. The checksum is 181477376 on node, bun, deno, and bento. Every runtime agrees on it.
-const passes = 400;
+// deterministic to the last bit, so it must match across runtimes. The checksum is 670320640 on node, bun, deno, and bento. Every runtime agrees on it.
+const passes = 100;
 let acc = 0;
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 0; i < 4000; i++) {

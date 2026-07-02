@@ -1,8 +1,8 @@
 // String building, splitting, and searching. Runtimes differ a lot on how they
 // represent and concatenate strings, so this catches rope versus flat tradeoffs
 // and the cost of the common split and join and replace path.
-const words = 20000;
-const passes = 30;
+const words = 8000;
+const passes = 12;
 
 let s = "";
 for (let i = 0; i < words; i++) {

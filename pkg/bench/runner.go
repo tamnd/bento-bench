@@ -165,6 +165,21 @@ func collect(ctx context.Context, bin string, args []string, opts Options) (Stat
 	return summarize(samples), nil
 }
 
+// compileOnce times a compile-to-binary step exactly once and returns it as a
+// single-sample Stats. Unlike the run phase, the compile is not worth sampling
+// repeatedly: the source handed to the toolchain is identical every time, so a
+// second compile hits the build cache and would time the cache rather than the
+// compile. The first compile from a clean temp output is the honest number, and
+// taking only one keeps a full sweep from paying Warmup+Runs redundant links per
+// two-phase runtime, which was the bulk of a run's wall-clock.
+func compileOnce(ctx context.Context, bin string, args []string, timeout time.Duration) (Stats, error) {
+	s, err := runCommand(ctx, bin, args, timeout)
+	if err != nil {
+		return Stats{}, err
+	}
+	return summarize([]sample{s}), nil
+}
+
 // measure runs the warmup and timed passes for one runtime on one workload. A
 // single-phase runtime times the workload directly. A two-phase runtime first
 // times the compile step, then times the binary it produced; a compile failure
@@ -187,7 +202,7 @@ func measure(ctx context.Context, rt Runtime, w Workload, opts Options) Measurem
 	defer cleanup()
 
 	cbin, cargs := rt.Compile.command(w.Path, bin)
-	compile, err := collect(ctx, cbin, cargs, opts)
+	compile, err := compileOnce(ctx, cbin, cargs, opts.Timeout)
 	if err != nil {
 		return failed(rt.Name, errors.New("compile: "+err.Error()))
 	}
