@@ -4,7 +4,6 @@ package main
 
 import (
 	"github.com/tamnd/bento/pkg/value"
-	"math"
 )
 
 func main() {
@@ -15,9 +14,9 @@ func main() {
 		var pass float64 = 0
 		for ; pass < passes; pass++ {
 			{
-				var i float64 = 1
-				for ; i < 3000; i++ {
-					var row value.BStr = value.Concat(value.Concat(value.Concat(value.Concat(value.FromGoString("a:"), value.NumberToString((math.Mod(i, 97)))), value.FromGoString(":b:")), value.NumberToString((math.Mod(i, 13)))), value.FromGoString(":c"))
+				var i int32 = 1
+				for ; float64(i) < 3000; i++ {
+					var row value.BStr = value.FromGoString("a:").ConcatN(value.NumberToString((float64((i) % 97))), value.FromGoString(":b:"), value.NumberToString((float64((i) % 13))), value.FromGoString(":c"))
 					var first value.BStr = row.Replace(value.FromGoString(":"), value.FromGoString(" [$&] "))
 					var all value.BStr = row.ReplaceAll(value.FromGoString(":"), value.FromGoString("-"))
 					acc = (value.ToInt32(float64(acc)*31 + first.Length())) | 0
