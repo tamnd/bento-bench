@@ -98,6 +98,60 @@ func fmtDur(d time.Duration) string {
 	}
 }
 
+// fmtBytes prints a byte count in a compact, human-scaled form. A zero or
+// negative count is "n/a", which is what a run that could not report memory
+// carries, so the report never shows a false 0 B.
+func fmtBytes(b int64) string {
+	const (
+		kb = 1024
+		mb = kb * 1024
+		gb = mb * 1024
+	)
+	switch {
+	case b <= 0:
+		return "n/a"
+	case b >= gb:
+		return fmt.Sprintf("%.2fGB", float64(b)/gb)
+	case b >= mb:
+		return fmt.Sprintf("%.1fMB", float64(b)/mb)
+	case b >= kb:
+		return fmt.Sprintf("%.0fKB", float64(b)/kb)
+	default:
+		return fmt.Sprintf("%dB", b)
+	}
+}
+
+// leanest returns the runtime with the lowest median peak memory in a workload,
+// ignoring failures and runs with no memory reading. It returns "" when nobody
+// reported memory.
+func leanest(wr WorkloadResult) string {
+	best := ""
+	var bestRSS int64
+	for _, m := range wr.Measurements {
+		if m.Failed || m.Stats.MedianRSS <= 0 {
+			continue
+		}
+		if best == "" || m.Stats.MedianRSS < bestRSS {
+			best = m.Runtime
+			bestRSS = m.Stats.MedianRSS
+		}
+	}
+	return best
+}
+
+// memCell renders one runtime's median peak memory. A failed run shows as
+// "fail", a run with no memory reading as "n/a"; the leanest runtime is starred.
+func memCell(m Measurement, isLeanest bool) string {
+	if m.Failed {
+		return "fail"
+	}
+	s := fmtBytes(m.Stats.MedianRSS)
+	if isLeanest && s != "n/a" {
+		return "*" + s
+	}
+	return s
+}
+
 func measurementFor(wr WorkloadResult, runtime string) (Measurement, bool) {
 	for _, m := range wr.Measurements {
 		if m.Runtime == runtime {
@@ -137,7 +191,88 @@ func WriteReport(w io.Writer, results []WorkloadResult, opts Options) error {
 		}
 		p.line(row.String())
 	}
+
+	p.line("")
+	p.line("Median peak memory (RSS), lower is better. * marks leanest.")
+	p.line("")
+	var memHeader strings.Builder
+	writef(&memHeader, "%-22s", "workload")
+	for _, rt := range runtimes {
+		writef(&memHeader, "  %-10s", rt)
+	}
+	p.line(memHeader.String())
+	p.line(strings.Repeat("-", memHeader.Len()))
+	for _, wr := range results {
+		lean := leanest(wr)
+		var row strings.Builder
+		writef(&row, "%-22s", wr.Category+"/"+wr.Workload)
+		for _, rt := range runtimes {
+			m, ok := measurementFor(wr, rt)
+			text := "-"
+			if ok {
+				text = memCell(m, rt == lean)
+			}
+			writef(&row, "  %-10s", text)
+		}
+		p.line(row.String())
+	}
+
+	writeStartupText(p, results, runtimes)
 	return p.err
+}
+
+// startupCost returns each runtime's startup duration and peak memory, taken as
+// the median over the startup-category workloads (the smallest programs, whose
+// wall-clock is dominated by process start and teardown). A runtime missing from
+// the map either had no startup workload or failed every one.
+func startupCost(results []WorkloadResult, runtimes []string) (map[string]time.Duration, map[string]int64) {
+	durs := map[string][]time.Duration{}
+	mems := map[string][]int64{}
+	for _, wr := range results {
+		if wr.Category != "startup" {
+			continue
+		}
+		for _, rt := range runtimes {
+			m, ok := measurementFor(wr, rt)
+			if !ok || m.Failed {
+				continue
+			}
+			durs[rt] = append(durs[rt], m.Stats.Median)
+			if m.Stats.MedianRSS > 0 {
+				mems[rt] = append(mems[rt], m.Stats.MedianRSS)
+			}
+		}
+	}
+	dOut := map[string]time.Duration{}
+	for rt, ds := range durs {
+		slices.Sort(ds)
+		dOut[rt] = percentile(ds, 0.50)
+	}
+	mOut := map[string]int64{}
+	for rt, ms := range mems {
+		slices.Sort(ms)
+		mOut[rt] = medianInt64(ms)
+	}
+	return dOut, mOut
+}
+
+// writeStartupText adds a short startup section to the text report, one line per
+// runtime, so the cold-start cost a user pays on every invocation is called out
+// on its own rather than buried in the workload grid.
+func writeStartupText(p *printer, results []WorkloadResult, runtimes []string) {
+	durs, mems := startupCost(results, runtimes)
+	if len(durs) == 0 {
+		return
+	}
+	p.line("")
+	p.line("Startup cost (median of the startup workloads):")
+	for _, rt := range runtimes {
+		d, ok := durs[rt]
+		if !ok {
+			continue
+		}
+		p.printf("  %-6s %-10s %s\n", rt, fmtDur(d), fmtBytes(mems[rt]))
+	}
 }
 
 // WriteMarkdown renders the results as a Markdown table for the CI job summary.
@@ -174,8 +309,130 @@ func WriteMarkdown(w io.Writer, results []WorkloadResult, opts Options) error {
 		p.line(row.String())
 	}
 
+	writeMemoryMarkdown(p, results, runtimes)
+	writeStartupMarkdown(p, results, runtimes)
+	writeCompileMarkdown(p, results, runtimes)
 	writeSpeedup(p, results, runtimes)
 	return p.err
+}
+
+// writeMemoryMarkdown renders the peak-memory table: one row per workload, one
+// column per runtime, each cell the median peak RSS, the leanest starred.
+func writeMemoryMarkdown(p *printer, results []WorkloadResult, runtimes []string) {
+	p.line("")
+	p.line("## Peak memory")
+	p.line("")
+	p.line("Median peak resident memory over the timed runs, lower is better. A star marks the leanest runtime in each row.")
+	p.line("")
+
+	var head, sep strings.Builder
+	head.WriteString("| workload |")
+	sep.WriteString("| --- |")
+	for _, rt := range runtimes {
+		writef(&head, " %s |", rt)
+		sep.WriteString(" --- |")
+	}
+	p.line(head.String())
+	p.line(sep.String())
+
+	for _, wr := range results {
+		lean := leanest(wr)
+		var row strings.Builder
+		writef(&row, "| %s/%s |", wr.Category, wr.Workload)
+		for _, rt := range runtimes {
+			m, ok := measurementFor(wr, rt)
+			text := "-"
+			if ok {
+				text = memCell(m, rt == lean)
+			}
+			writef(&row, " %s |", text)
+		}
+		p.line(row.String())
+	}
+}
+
+// writeStartupMarkdown renders the startup cost per runtime, the median duration
+// and memory of the startup-category workloads, so cold start is called out on
+// its own.
+func writeStartupMarkdown(p *printer, results []WorkloadResult, runtimes []string) {
+	durs, mems := startupCost(results, runtimes)
+	if len(durs) == 0 {
+		return
+	}
+	p.line("")
+	p.line("## Startup cost")
+	p.line("")
+	p.line("Median wall-clock and peak memory of the startup workloads, the floor you pay on every invocation.")
+	p.line("")
+	p.line("| runtime | startup | memory |")
+	p.line("| --- | --- | --- |")
+	for _, rt := range runtimes {
+		d, ok := durs[rt]
+		if !ok {
+			continue
+		}
+		p.printf("| %s | %s | %s |\n", rt, fmtDur(d), fmtBytes(mems[rt]))
+	}
+}
+
+// writeCompileMarkdown renders the ahead-of-time compile step for the runtimes
+// that have one (bento's AOT path), so the cost of turning TypeScript into a Go
+// binary is visible next to the speed of the binary it produced. The section is
+// omitted when no runtime reported a compile step, which is the case for the
+// interpreter path and for every single-phase runtime.
+func writeCompileMarkdown(p *printer, results []WorkloadResult, runtimes []string) {
+	twoPhase := make([]string, 0, len(runtimes))
+	for _, rt := range runtimes {
+		if anyCompile(results, rt) {
+			twoPhase = append(twoPhase, rt)
+		}
+	}
+	if len(twoPhase) == 0 {
+		return
+	}
+	p.line("")
+	p.line("## Compile step")
+	p.line("")
+	p.line("Median wall-clock of the ahead-of-time compile that turns each workload into a native binary. The speed table above times the binary this step produced.")
+	p.line("")
+
+	var head, sep strings.Builder
+	head.WriteString("| workload |")
+	sep.WriteString("| --- |")
+	for _, rt := range twoPhase {
+		writef(&head, " %s |", rt)
+		sep.WriteString(" --- |")
+	}
+	p.line(head.String())
+	p.line(sep.String())
+
+	for _, wr := range results {
+		var row strings.Builder
+		writef(&row, "| %s/%s |", wr.Category, wr.Workload)
+		for _, rt := range twoPhase {
+			m, ok := measurementFor(wr, rt)
+			text := "-"
+			switch {
+			case ok && m.Compile != nil:
+				text = fmtDur(m.Compile.Median)
+			case ok && m.Failed:
+				text = "fail"
+			}
+			writef(&row, " %s |", text)
+		}
+		p.line(row.String())
+	}
+}
+
+// anyCompile reports whether a runtime produced a compile measurement on any
+// workload, which marks it as a two-phase (ahead-of-time) runtime in the report.
+func anyCompile(results []WorkloadResult, runtime string) bool {
+	for _, wr := range results {
+		if m, ok := measurementFor(wr, runtime); ok && m.Compile != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // writeSpeedup adds a short section showing bento's median relative to the

@@ -1,9 +1,12 @@
 package bench
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDiscoverWorkloads(t *testing.T) {
@@ -31,13 +34,85 @@ func TestDiscoverWorkloads(t *testing.T) {
 	}
 }
 
-func TestRuntimeCommand(t *testing.T) {
+func TestRuntimeRunArgs(t *testing.T) {
 	rt := Runtime{Name: "deno", Bin: "deno", Args: []string{"run", "--quiet"}}
-	bin, args := rt.command("/tmp/x.mjs")
-	if bin != "deno" {
-		t.Errorf("bin = %q, want deno", bin)
-	}
+	args := rt.runArgs("/tmp/x.mjs")
 	want := []string{"run", "--quiet", "/tmp/x.mjs"}
+	if len(args) != len(want) {
+		t.Fatalf("args = %v, want %v", args, want)
+	}
+	for i := range want {
+		if args[i] != want[i] {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
+		}
+	}
+}
+
+// TestCollectBudgetStopsEarly pins that a tiny budget cuts the timed pass down
+// to the minimum floor of samples instead of the full run count, which is how a
+// slow runtime is kept from dominating a run.
+func TestCollectBudgetStopsEarly(t *testing.T) {
+	bin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no true binary to time")
+	}
+	opts := Options{Warmup: 0, Runs: 20, Timeout: 5 * time.Second, Budget: time.Nanosecond}
+	stats, err := collect(context.Background(), bin, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Runs != minTimedRuns {
+		t.Errorf("Runs = %d, want the budget floor of %d", stats.Runs, minTimedRuns)
+	}
+}
+
+// TestCollectNoBudgetTakesAllRuns pins that with no budget the timed pass takes
+// exactly the requested number of runs.
+func TestCollectNoBudgetTakesAllRuns(t *testing.T) {
+	bin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no true binary to time")
+	}
+	opts := Options{Warmup: 0, Runs: 5, Timeout: 5 * time.Second}
+	stats, err := collect(context.Background(), bin, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Runs != 5 {
+		t.Errorf("Runs = %d, want 5", stats.Runs)
+	}
+}
+
+// TestWithout pins that the skip list drops the named runtimes case
+// insensitively and leaves the rest in order, and that a blank list is a no-op.
+func TestWithout(t *testing.T) {
+	all := []Runtime{{Name: "node"}, {Name: "deno"}, {Name: "bun"}, {Name: "bento"}}
+
+	got := Without(all, "Bento")
+	if len(got) != 3 {
+		t.Fatalf("Without dropped %d runtimes, want 3 left", len(got))
+	}
+	for _, rt := range got {
+		if rt.Name == "bento" {
+			t.Error("Without kept bento despite the skip list")
+		}
+	}
+
+	if len(Without(all, "  ")) != len(all) {
+		t.Error("a blank skip list should change nothing")
+	}
+	if len(Without(all, "node,bun")) != 2 {
+		t.Error("Without should drop both named runtimes")
+	}
+}
+
+func TestCompileStepCommand(t *testing.T) {
+	c := &CompileStep{Bin: "bento", Args: []string{"build"}}
+	bin, args := c.command("/tmp/w.ts", "/tmp/out/w")
+	if bin != "bento" {
+		t.Errorf("bin = %q, want bento", bin)
+	}
+	want := []string{"build", "-o", "/tmp/out/w", "/tmp/w.ts"}
 	if len(args) != len(want) {
 		t.Fatalf("args = %v, want %v", args, want)
 	}

@@ -3,6 +3,8 @@ package bench
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -69,12 +71,31 @@ type Options struct {
 	Warmup  int           // discarded runs before timing, to prime caches
 	Runs    int           // timed runs collected into Stats
 	Timeout time.Duration // per-run wall-clock limit
+	// Budget bounds the wall-clock spent on the timed runs of a single runtime on
+	// a single workload. Once it is exceeded the timed pass stops early, as long
+	// as at least minTimedRuns samples were collected, so a slow runtime does not
+	// grind through every run while a fast one still gets the full count. Zero
+	// means no budget: always take exactly Runs samples.
+	Budget time.Duration
+
+	// Progress, when set, receives a human-readable line as each workload begins
+	// and as each measurement finishes, so a long run shows what it is doing
+	// instead of sitting silent. It is never serialized.
+	Progress io.Writer `json:"-"`
 }
 
-// Measurement is the timing of one runtime on one workload.
+// minTimedRuns is the floor of timed samples the budget will never cut below, so
+// even a very slow runtime still yields a median worth reporting.
+const minTimedRuns = 3
+
+// Measurement is the timing of one runtime on one workload. For a two-phase
+// runtime (bento's AOT path), Compile carries the separate timing of the
+// compile step and Stats is the timing of the produced binary; for a single
+// phase runtime Compile is nil and Stats is the whole invocation.
 type Measurement struct {
 	Runtime string `json:"runtime"`
 	Stats   Stats  `json:"stats"`
+	Compile *Stats `json:"compile,omitempty"`
 	Failed  bool   `json:"failed"`
 	Note    string `json:"note,omitempty"`
 }
@@ -86,14 +107,15 @@ type WorkloadResult struct {
 	Measurements []Measurement `json:"measurements"`
 }
 
-// timeOnce runs a workload once under a runtime and returns the wall-clock
-// duration. A nonzero exit, a timeout, or a spawn failure is reported as an
-// error so the caller can mark the runtime as failing this workload.
-func timeOnce(ctx context.Context, rt Runtime, workload string, timeout time.Duration) (time.Duration, error) {
+// runCommand runs one command to completion and returns its wall-clock duration
+// and peak resident memory. A nonzero exit, a timeout, or a spawn failure is an
+// error so the caller can mark the runtime as failing this workload. Memory is
+// read from the finished process rusage, which is zero when the platform cannot
+// report it.
+func runCommand(ctx context.Context, bin string, args []string, timeout time.Duration) (sample, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	bin, args := rt.command(workload)
 	cmd := exec.CommandContext(runCtx, bin, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 	cmd.Stdout = nil
@@ -103,35 +125,88 @@ func timeOnce(ctx context.Context, rt Runtime, workload string, timeout time.Dur
 	err := cmd.Run()
 	elapsed := time.Since(start)
 
+	s := sample{dur: elapsed, rss: maxRSSBytes(cmd.ProcessState)}
+
 	if runCtx.Err() == context.DeadlineExceeded {
-		return elapsed, errors.New("timeout")
+		return s, errors.New("timeout")
 	}
 	if err != nil {
-		return elapsed, err
+		return s, err
 	}
-	return elapsed, nil
+	return s, nil
 }
 
-// measure runs the warmup and timed passes for one runtime on one workload.
-func measure(ctx context.Context, rt Runtime, w Workload, opts Options) Measurement {
+// collect runs one command through the warmup and timed passes and reduces the
+// timed samples to Stats. A failure in any pass stops the collection and returns
+// the error, which the caller turns into a failed measurement with a note.
+func collect(ctx context.Context, bin string, args []string, opts Options) (Stats, error) {
 	for i := 0; i < opts.Warmup; i++ {
-		if _, err := timeOnce(ctx, rt, w.Path, opts.Timeout); err != nil {
-			return Measurement{Runtime: rt.Name, Failed: true, Note: warmupNote(err)}
+		if _, err := runCommand(ctx, bin, args, opts.Timeout); err != nil {
+			return Stats{}, err
 		}
 	}
-	samples := make([]time.Duration, 0, opts.Runs)
+	samples := make([]sample, 0, opts.Runs)
+	start := time.Now()
 	for i := 0; i < opts.Runs; i++ {
-		d, err := timeOnce(ctx, rt, w.Path, opts.Timeout)
+		s, err := runCommand(ctx, bin, args, opts.Timeout)
 		if err != nil {
-			return Measurement{Runtime: rt.Name, Failed: true, Note: err.Error()}
+			return Stats{}, err
 		}
-		samples = append(samples, d)
+		samples = append(samples, s)
+		floor := min(minTimedRuns, opts.Runs)
+		if opts.Budget > 0 && len(samples) >= floor && time.Since(start) >= opts.Budget {
+			break
+		}
 	}
-	return Measurement{Runtime: rt.Name, Stats: summarize(samples)}
+	return summarize(samples), nil
 }
 
-func warmupNote(err error) string {
-	return "warmup failed: " + err.Error()
+// measure runs the warmup and timed passes for one runtime on one workload. A
+// single-phase runtime times the workload directly. A two-phase runtime first
+// times the compile step, then times the binary it produced; a compile failure
+// (which is what surfaces while bento's AOT build is still a stub) fails the
+// whole measurement with the compiler's own message, rather than falling back to
+// a different path and reporting a number the AOT column did not earn.
+func measure(ctx context.Context, rt Runtime, w Workload, opts Options) Measurement {
+	if rt.Compile == nil {
+		stats, err := collect(ctx, rt.Bin, rt.runArgs(w.Path), opts)
+		if err != nil {
+			return failed(rt.Name, err)
+		}
+		return Measurement{Runtime: rt.Name, Stats: stats}
+	}
+
+	bin, cleanup, err := tempBinaryPath(w)
+	if err != nil {
+		return failed(rt.Name, err)
+	}
+	defer cleanup()
+
+	cbin, cargs := rt.Compile.command(w.Path, bin)
+	compile, err := collect(ctx, cbin, cargs, opts)
+	if err != nil {
+		return failed(rt.Name, errors.New("compile: "+err.Error()))
+	}
+	run, err := collect(ctx, bin, nil, opts)
+	if err != nil {
+		return failed(rt.Name, errors.New("run: "+err.Error()))
+	}
+	return Measurement{Runtime: rt.Name, Stats: run, Compile: &compile}
+}
+
+// tempBinaryPath returns a path for a compiled workload binary and a cleanup
+// that removes its directory. The name carries the workload so a stray file left
+// by a killed run is still identifiable.
+func tempBinaryPath(w Workload) (string, func(), error) {
+	dir, err := os.MkdirTemp("", "bento-bench-*")
+	if err != nil {
+		return "", func() {}, err
+	}
+	return filepath.Join(dir, w.Name), func() { _ = os.RemoveAll(dir) }, nil
+}
+
+func failed(name string, err error) Measurement {
+	return Measurement{Runtime: name, Failed: true, Note: err.Error()}
 }
 
 // Run measures every available runtime against every workload and returns one
@@ -145,12 +220,49 @@ func Run(ctx context.Context, workloads []Workload, runtimes []Runtime, opts Opt
 	}
 
 	results := make([]WorkloadResult, 0, len(workloads))
-	for _, w := range workloads {
+	for i, w := range workloads {
+		logf(opts.Progress, "[%d/%d] %s/%s\n", i+1, len(workloads), w.Category, w.Name)
 		wr := WorkloadResult{Workload: w.Name, Category: w.Category}
 		for _, rt := range live {
-			wr.Measurements = append(wr.Measurements, measure(ctx, rt, w, opts))
+			logf(opts.Progress, "    %-6s running...\n", rt.Name)
+			m := measure(ctx, rt, w, opts)
+			logCell(opts.Progress, m, opts.Runs)
+			wr.Measurements = append(wr.Measurements, m)
 		}
 		results = append(results, wr)
 	}
 	return results
+}
+
+// logf writes a progress line when a progress writer is set, and is a no-op
+// otherwise so measurement never depends on progress being wired.
+func logf(w io.Writer, format string, args ...any) {
+	if w == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+// logCell reports the outcome of one measurement: the median duration and peak
+// memory with the number of runs kept, or the failure note. When the budget cut
+// the timed pass below the requested count it is called out, so a shortened cell
+// is never mistaken for the full one.
+func logCell(w io.Writer, m Measurement, wantRuns int) {
+	if w == nil {
+		return
+	}
+	if m.Failed {
+		_, _ = fmt.Fprintf(w, "    %-6s fail: %s\n", m.Runtime, m.Note)
+		return
+	}
+	runs := fmt.Sprintf("%d runs", m.Stats.Runs)
+	if m.Stats.Runs < wantRuns {
+		runs += ", budget capped"
+	}
+	compile := ""
+	if m.Compile != nil {
+		compile = fmt.Sprintf(", compile %s", fmtDur(m.Compile.Median))
+	}
+	_, _ = fmt.Fprintf(w, "    %-6s %9s  %9s  (%s%s)\n",
+		m.Runtime, fmtDur(m.Stats.Median), fmtBytes(m.Stats.MedianRSS), runs, compile)
 }

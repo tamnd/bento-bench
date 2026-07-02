@@ -5,8 +5,11 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// BENCH_SCALE scales the number of files per pass so CI can run a lighter size
+// without editing the workload; unset or 1 is the full size.
+const SCALE = Number(process.env.BENCH_SCALE ?? "1");
 const dir = mkdtempSync(join(tmpdir(), "bento-bench-"));
-const count = 200;
+const count = Math.max(1, Math.round(200 * SCALE));
 const payload = "x".repeat(512);
 
 let bytes = 0;

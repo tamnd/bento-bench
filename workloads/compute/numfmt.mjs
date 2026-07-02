@@ -3,8 +3,12 @@
 // magnitudes that stay decimal. The shortest-round-trip digit search and the
 // exponent placement are the expensive part, so this isolates the formatter from
 // the rest of a program.
+// BENCH_SCALE scales the outer pass count so CI can run a lighter size without
+// editing the workload; unset or 1 is the full size.
+const SCALE = Number(process.env.BENCH_SCALE ?? "1");
+const passes = Math.max(1, Math.round(300 * SCALE));
 let total = 0;
-for (let pass = 0; pass < 300; pass++) {
+for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 3000; i++) {
     const x = i * 1.000001;
     total += String(x).length;
