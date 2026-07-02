@@ -18,7 +18,7 @@ func main() {
 			{
 				var i int32 = 1
 				for ; float64(i) < 5000; i++ {
-					var m float64 = value.NewArray[float64](value.MathE, value.MathLN10, value.MathLN2, value.MathLOG10E, value.MathLOG2E, value.MathPI, value.MathSQRT12, value.MathSQRT2).At(float64(value.ToInt32(float64(i)) & value.ToInt32(7)))
+					var m float64 = value.NewArray[float64](value.MathE, value.MathLN10, value.MathLN2, value.MathLOG10E, value.MathLOG2E, value.MathPI, value.MathSQRT12, value.MathSQRT2).At(float64((i) & 7))
 					mix = mix + m*float64(i)
 					acc = (value.ToInt32(float64(acc) + value.Clz32(float64(i)) + (float64(value.ToUint32(math.Mod(mix, value.NumberMaxSafeInteger)) >> (value.ToUint32(0) & 31))))) | 0
 					acc = (acc ^ ((value.ToInt32(value.NumberEpsilon * float64(i) * 1e18)) | 0))
@@ -28,5 +28,5 @@ func main() {
 	}
 	var t1 float64 = value.PerformanceNow()
 	value.ConsoleError(value.Concat(value.FromGoString("compute_ms="), value.NumberToString((t1 - t0))))
-	value.ConsoleLog(value.NumberToString(float64(value.ToInt32(float64(acc)) | value.ToInt32(0))))
+	value.ConsoleLog(value.NumberToString(float64(acc)))
 }

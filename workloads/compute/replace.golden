@@ -30,5 +30,5 @@ func main() {
 	}
 	var t1 float64 = value.PerformanceNow()
 	value.ConsoleError(value.Concat(value.FromGoString("compute_ms="), value.NumberToString((t1 - t0))))
-	value.ConsoleLog(value.NumberToString(float64(value.ToInt32(float64(acc)) | value.ToInt32(0))))
+	value.ConsoleLog(value.NumberToString(float64(acc)))
 }

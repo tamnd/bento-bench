@@ -4,7 +4,6 @@ package main
 
 import (
 	"github.com/tamnd/bento/pkg/value"
-	"math"
 )
 
 func main() {
@@ -17,7 +16,7 @@ func main() {
 			{
 				var i int32 = 0
 				for ; float64(i) < 4000; i++ {
-					var s value.BStr = value.FromCharCode(65+(float64(value.ToInt32(float64(i))&value.ToInt32(25))), 97+(math.Mod(float64(i), 26)), 65536+(float64(value.ToInt32(float64(i))&value.ToInt32(127))), 945+(math.Mod(float64(i), 24)))
+					var s value.BStr = value.FromCharCode(65+(float64((i)&25)), 97+(float64((i)%26)), 65536+(float64((i)&127)), 945+(float64((i)%24)))
 					acc = (value.ToInt32(float64(acc)*31 + s.CharCodeAt(0))) | 0
 					acc = (value.ToInt32(float64(acc)*31 + s.CharCodeAt(2))) | 0
 					acc = (value.ToInt32(float64(acc)*31 + s.Length())) | 0
@@ -27,5 +26,5 @@ func main() {
 	}
 	var t1 float64 = value.PerformanceNow()
 	value.ConsoleError(value.Concat(value.FromGoString("compute_ms="), value.NumberToString((t1 - t0))))
-	value.ConsoleLog(value.NumberToString(float64(value.ToInt32(float64(acc)) | value.ToInt32(0))))
+	value.ConsoleLog(value.NumberToString(float64(acc)))
 }
