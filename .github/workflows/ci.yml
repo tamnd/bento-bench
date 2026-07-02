@@ -90,10 +90,15 @@ jobs:
           echo "bento $($BENTO_BIN --version || true)"
 
       - name: Run benchmark
+        # --budget caps the timed runs of any one runtime on one workload, so the
+        # interpreter's slow compute workloads stop after a few samples instead of
+        # grinding through every run, while the fast runtimes still take the full
+        # count. That keeps the job from being dominated by the slowest cells.
         run: |
           go run ./cmd/bento-bench \
             --runs "${{ vars.RUNS || '15' }}" \
-            --warmup 3 \
+            --warmup 1 \
+            --budget "${{ vars.BUDGET || '8s' }}" \
             --json results.json \
             --markdown results.md
 

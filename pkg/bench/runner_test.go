@@ -1,9 +1,12 @@
 package bench
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDiscoverWorkloads(t *testing.T) {
@@ -42,6 +45,41 @@ func TestRuntimeRunArgs(t *testing.T) {
 		if args[i] != want[i] {
 			t.Errorf("args[%d] = %q, want %q", i, args[i], want[i])
 		}
+	}
+}
+
+// TestCollectBudgetStopsEarly pins that a tiny budget cuts the timed pass down
+// to the minimum floor of samples instead of the full run count, which is how a
+// slow runtime is kept from dominating a run.
+func TestCollectBudgetStopsEarly(t *testing.T) {
+	bin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no true binary to time")
+	}
+	opts := Options{Warmup: 0, Runs: 20, Timeout: 5 * time.Second, Budget: time.Nanosecond}
+	stats, err := collect(context.Background(), bin, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Runs != minTimedRuns {
+		t.Errorf("Runs = %d, want the budget floor of %d", stats.Runs, minTimedRuns)
+	}
+}
+
+// TestCollectNoBudgetTakesAllRuns pins that with no budget the timed pass takes
+// exactly the requested number of runs.
+func TestCollectNoBudgetTakesAllRuns(t *testing.T) {
+	bin, err := exec.LookPath("true")
+	if err != nil {
+		t.Skip("no true binary to time")
+	}
+	opts := Options{Warmup: 0, Runs: 5, Timeout: 5 * time.Second}
+	stats, err := collect(context.Background(), bin, nil, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Runs != 5 {
+		t.Errorf("Runs = %d, want 5", stats.Runs)
 	}
 }
 

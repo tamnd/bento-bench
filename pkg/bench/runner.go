@@ -3,6 +3,8 @@ package bench
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -69,7 +71,22 @@ type Options struct {
 	Warmup  int           // discarded runs before timing, to prime caches
 	Runs    int           // timed runs collected into Stats
 	Timeout time.Duration // per-run wall-clock limit
+	// Budget bounds the wall-clock spent on the timed runs of a single runtime on
+	// a single workload. Once it is exceeded the timed pass stops early, as long
+	// as at least minTimedRuns samples were collected, so a slow runtime does not
+	// grind through every run while a fast one still gets the full count. Zero
+	// means no budget: always take exactly Runs samples.
+	Budget time.Duration
+
+	// Progress, when set, receives a human-readable line as each workload begins
+	// and as each measurement finishes, so a long run shows what it is doing
+	// instead of sitting silent. It is never serialized.
+	Progress io.Writer `json:"-"`
 }
+
+// minTimedRuns is the floor of timed samples the budget will never cut below, so
+// even a very slow runtime still yields a median worth reporting.
+const minTimedRuns = 3
 
 // Measurement is the timing of one runtime on one workload. For a two-phase
 // runtime (bento's AOT path), Compile carries the separate timing of the
@@ -129,12 +146,17 @@ func collect(ctx context.Context, bin string, args []string, opts Options) (Stat
 		}
 	}
 	samples := make([]sample, 0, opts.Runs)
+	start := time.Now()
 	for i := 0; i < opts.Runs; i++ {
 		s, err := runCommand(ctx, bin, args, opts.Timeout)
 		if err != nil {
 			return Stats{}, err
 		}
 		samples = append(samples, s)
+		floor := min(minTimedRuns, opts.Runs)
+		if opts.Budget > 0 && len(samples) >= floor && time.Since(start) >= opts.Budget {
+			break
+		}
 	}
 	return summarize(samples), nil
 }
@@ -198,12 +220,49 @@ func Run(ctx context.Context, workloads []Workload, runtimes []Runtime, opts Opt
 	}
 
 	results := make([]WorkloadResult, 0, len(workloads))
-	for _, w := range workloads {
+	for i, w := range workloads {
+		logf(opts.Progress, "[%d/%d] %s/%s\n", i+1, len(workloads), w.Category, w.Name)
 		wr := WorkloadResult{Workload: w.Name, Category: w.Category}
 		for _, rt := range live {
-			wr.Measurements = append(wr.Measurements, measure(ctx, rt, w, opts))
+			logf(opts.Progress, "    %-6s running...\n", rt.Name)
+			m := measure(ctx, rt, w, opts)
+			logCell(opts.Progress, m, opts.Runs)
+			wr.Measurements = append(wr.Measurements, m)
 		}
 		results = append(results, wr)
 	}
 	return results
+}
+
+// logf writes a progress line when a progress writer is set, and is a no-op
+// otherwise so measurement never depends on progress being wired.
+func logf(w io.Writer, format string, args ...any) {
+	if w == nil {
+		return
+	}
+	fmt.Fprintf(w, format, args...)
+}
+
+// logCell reports the outcome of one measurement: the median duration and peak
+// memory with the number of runs kept, or the failure note. When the budget cut
+// the timed pass below the requested count it is called out, so a shortened cell
+// is never mistaken for the full one.
+func logCell(w io.Writer, m Measurement, wantRuns int) {
+	if w == nil {
+		return
+	}
+	if m.Failed {
+		fmt.Fprintf(w, "    %-6s fail: %s\n", m.Runtime, m.Note)
+		return
+	}
+	runs := fmt.Sprintf("%d runs", m.Stats.Runs)
+	if m.Stats.Runs < wantRuns {
+		runs += ", budget capped"
+	}
+	compile := ""
+	if m.Compile != nil {
+		compile = fmt.Sprintf(", compile %s", fmtDur(m.Compile.Median))
+	}
+	fmt.Fprintf(w, "    %-6s %9s  %9s  (%s%s)\n",
+		m.Runtime, fmtDur(m.Stats.Median), fmtBytes(m.Stats.MedianRSS), runs, compile)
 }

@@ -21,6 +21,7 @@ func main() {
 		warmup   = flag.Int("warmup", 2, "discarded runs before timing")
 		runs     = flag.Int("runs", 10, "timed runs per workload")
 		timeout  = flag.Duration("timeout", 60*time.Second, "per-run timeout")
+		budget   = flag.Duration("budget", 0, "soft wall-clock ceiling on the timed runs of one runtime on one workload; a slow runtime stops early after enough samples instead of taking all --runs (0 means no ceiling)")
 		jsonOut  = flag.String("json", "", "write raw results as JSON to this path")
 		mdOut    = flag.String("markdown", "", "write a Markdown summary to this path")
 		bentoAOT = flag.Bool("bento-aot", false, "measure bento by compiling each workload to a Go binary and timing the binary, instead of the interpreter")
@@ -45,7 +46,7 @@ func main() {
 	runtimes := bench.DefaultRuntimes(*bentoAOT)
 	reportAvailability(runtimes)
 
-	opts := bench.Options{Warmup: *warmup, Runs: *runs, Timeout: *timeout}
+	opts := bench.Options{Warmup: *warmup, Runs: *runs, Timeout: *timeout, Budget: *budget, Progress: os.Stderr}
 	results := bench.Run(context.Background(), workloads, runtimes, opts)
 
 	if err := bench.WriteReport(os.Stdout, results, opts); err != nil {

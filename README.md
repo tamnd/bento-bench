@@ -10,6 +10,7 @@ That means every workload includes startup cost, which is fair because you pay i
 
 Each workload under `workloads/` is an ordinary ES module that all four runtimes can execute unchanged.
 The harness runs each one a few warmup times to prime caches, then times a batch of runs and reduces them to min, mean, median, p90, and standard deviation.
+With `--budget` set, the timed pass for a single runtime on a single workload stops once it has spent that much wall-clock, as long as it collected at least three samples, so a slow runtime does not grind through every run while a fast one still takes the full count. Each Stats records how many runs it actually kept, so a shortened cell is honest about it.
 A run counts as failed if the process exits nonzero or times out, and a failed cell is shown as `fail` rather than a fake number.
 
 For every run it captures two things: the wall-clock duration from process start to exit, and the peak resident memory the process held, read from the kernel rusage of the finished process. So the report has three parts: a speed table, a peak-memory table, and a startup section that pulls the startup workloads out on their own, since cold start is the cost you pay on every single invocation. Peak memory is reported in bytes on macOS and normalized from the kilobytes Linux reports, and a run that cannot report memory shows `n/a` rather than a false zero.
@@ -51,11 +52,14 @@ Useful flags:
 - `--runs N` timed runs per workload, default 10
 - `--warmup N` discarded runs before timing, default 2
 - `--timeout D` per-run timeout, default 60s
+- `--budget D` soft ceiling on the timed runs of one runtime on one workload, so a slow runtime stops after a few samples instead of taking all `--runs`, while fast runtimes still take the full count; default off
 - `--json PATH` write the raw results as JSON
 - `--markdown PATH` write a Markdown summary
 - `--bento-aot` measure bento by compiling each workload to a Go binary and timing the binary, instead of the interpreter
 
 A runtime that is not installed is skipped, not failed, so the harness is useful even with only some runtimes present.
+
+While it runs, the harness logs progress to stderr: a line as each workload begins, a line as each runtime starts, and a line with the median duration, peak memory, and run count as each cell finishes, with the compile time shown too on the AOT path. A cell the budget cut short is marked so a shortened run is never mistaken for a full one. The tables still go to stdout, so `--json` and `--markdown` and a redirected stdout stay clean.
 
 ## A note on fairness
 
