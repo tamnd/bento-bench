@@ -25,6 +25,7 @@ func main() {
 		jsonOut  = flag.String("json", "", "write raw results as JSON to this path")
 		mdOut    = flag.String("markdown", "", "write a Markdown summary to this path")
 		bentoAOT = flag.Bool("bento-aot", false, "measure bento by compiling each workload to a Go binary and timing the binary, instead of the interpreter")
+		skip     = flag.String("skip", "", "comma-separated runtime names to leave out of this run (for example \"bento\" to drop the slow interpreter)")
 	)
 	flag.Parse()
 
@@ -43,7 +44,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	runtimes := bench.DefaultRuntimes(*bentoAOT)
+	runtimes := bench.Without(bench.DefaultRuntimes(*bentoAOT), *skip)
 	reportAvailability(runtimes)
 
 	opts := bench.Options{Warmup: *warmup, Runs: *runs, Timeout: *timeout, Budget: *budget, Progress: os.Stderr}

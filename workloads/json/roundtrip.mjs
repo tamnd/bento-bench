@@ -11,11 +11,17 @@ function makeRecord(i) {
   };
 }
 
+// BENCH_SCALE scales the record count and the outer pass count so CI can run a
+// lighter size without editing the workload; unset or 1 is the full size.
+const SCALE = Number(process.env.BENCH_SCALE ?? "1");
+const recordCount = Math.max(1, Math.round(2000 * SCALE));
+const passes = Math.max(1, Math.round(20 * SCALE));
+
 const records = [];
-for (let i = 0; i < 2000; i++) records.push(makeRecord(i));
+for (let i = 0; i < recordCount; i++) records.push(makeRecord(i));
 
 let total = 0;
-for (let pass = 0; pass < 20; pass++) {
+for (let pass = 0; pass < passes; pass++) {
   const text = JSON.stringify(records);
   const back = JSON.parse(text);
   total += back.length + text.length;

@@ -5,10 +5,13 @@
 // checksum through its length and a couple of sampled code units, an O(1)
 // reduction so the timing tracks template building rather than a per-character
 // scan. The result is deterministic to the last bit, so it must match across
-// runtimes. The checksum is 1174080576 on node, bun, deno, and bento.
+// runtimes. At the default scale the checksum is 1174080576 on node, bun, deno,
+// and bento; every runtime still agrees at any fixed BENCH_SCALE.
+const SCALE = Number(process.env.BENCH_SCALE ?? "1");
+const passes = Math.max(1, Math.round(300 * SCALE));
 let acc = 0;
 const words = ["alpha", "beta", "gamma", "delta"];
-for (let pass = 0; pass < 300; pass++) {
+for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 3000; i++) {
     const s = `row ${i}: ${words[i & 3]} = ${i * 1.5} (${(i & 1) === 0})`;
     // fold the built string in O(1): its length and the code units at both ends

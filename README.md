@@ -31,6 +31,7 @@ You can see both sides in the table: bento tends to win cold start and trail on 
 
 That gap is the point of tracking it.
 As bento's AOT TypeScript-to-Go compiler lands, compute-bound workloads should move toward the pack, and this harness is how that progress gets measured instead of asserted.
+For that reason CI currently runs with `--skip bento`: on a shared runner the interpreter's compute workloads would push the job past its time budget, and the number worth publishing is the ahead-of-time one, which is the next thing to land. The interpreter's own numbers still come from local and release runs, where nothing is skipped.
 
 ### The ahead-of-time path
 
@@ -53,9 +54,12 @@ Useful flags:
 - `--warmup N` discarded runs before timing, default 2
 - `--timeout D` per-run timeout, default 60s
 - `--budget D` soft ceiling on the timed runs of one runtime on one workload, so a slow runtime stops after a few samples instead of taking all `--runs`, while fast runtimes still take the full count; default off
+- `--skip names` comma-separated runtime names to leave out of a run, for example `bento` to drop the slow interpreter; default none
 - `--json PATH` write the raw results as JSON
 - `--markdown PATH` write a Markdown summary
 - `--bento-aot` measure bento by compiling each workload to a Go binary and timing the binary, instead of the interpreter
+
+Each workload also honors a `BENCH_SCALE` environment variable that scales the per-run work it does, unset or `1` being the full size and a smaller value doing proportionally less. It is the size knob for a run: CI sets it low so a run is quick, while a local run leaves it at full size for real numbers. The workloads that assert a fixed checksum still agree across runtimes at any fixed scale, and their documented checksum is the one at the default scale.
 
 A runtime that is not installed is skipped, not failed, so the harness is useful even with only some runtimes present.
 

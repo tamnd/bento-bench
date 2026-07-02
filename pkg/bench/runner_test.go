@@ -83,6 +83,29 @@ func TestCollectNoBudgetTakesAllRuns(t *testing.T) {
 	}
 }
 
+// TestWithout pins that the skip list drops the named runtimes case
+// insensitively and leaves the rest in order, and that a blank list is a no-op.
+func TestWithout(t *testing.T) {
+	all := []Runtime{{Name: "node"}, {Name: "deno"}, {Name: "bun"}, {Name: "bento"}}
+
+	got := Without(all, "Bento")
+	if len(got) != 3 {
+		t.Fatalf("Without dropped %d runtimes, want 3 left", len(got))
+	}
+	for _, rt := range got {
+		if rt.Name == "bento" {
+			t.Error("Without kept bento despite the skip list")
+		}
+	}
+
+	if len(Without(all, "  ")) != len(all) {
+		t.Error("a blank skip list should change nothing")
+	}
+	if len(Without(all, "node,bun")) != 2 {
+		t.Error("Without should drop both named runtimes")
+	}
+}
+
 func TestCompileStepCommand(t *testing.T) {
 	c := &CompileStep{Bin: "bento", Args: []string{"build"}}
 	bin, args := c.command("/tmp/w.ts", "/tmp/out/w")

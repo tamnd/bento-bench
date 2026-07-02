@@ -3,6 +3,7 @@ package bench
 import (
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Runtime is a JavaScript or TypeScript runtime the harness can drive. Args are
@@ -66,6 +67,29 @@ func DefaultRuntimes(bentoAOT bool) []Runtime {
 		{Name: "bun", Bin: "bun", Args: []string{"run"}},
 		bentoRT,
 	}
+}
+
+// Without drops every runtime whose name appears in the comma-separated list,
+// case-insensitively. It is how CI can leave the slow interpreter out of a run
+// while the default local run still measures it, without touching the runtime
+// table itself. An empty or blank list changes nothing.
+func Without(runtimes []Runtime, skip string) []Runtime {
+	drop := map[string]bool{}
+	for name := range strings.SplitSeq(skip, ",") {
+		if s := strings.ToLower(strings.TrimSpace(name)); s != "" {
+			drop[s] = true
+		}
+	}
+	if len(drop) == 0 {
+		return runtimes
+	}
+	out := make([]Runtime, 0, len(runtimes))
+	for _, rt := range runtimes {
+		if !drop[strings.ToLower(rt.Name)] {
+			out = append(out, rt)
+		}
+	}
+	return out
 }
 
 // Available reports whether the runtime can be found and executed. For a

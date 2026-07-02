@@ -4,10 +4,13 @@
 // string construction from the rest of a program. Each built string folds into a
 // 32-bit checksum through its first and last code units, an O(1) reduction so the
 // timing tracks the construction rather than a per-character scan. The result is
-// deterministic to the last bit, so it must match across runtimes. The checksum
-// is 181477376 on node, bun, deno, and bento.
+// deterministic to the last bit, so it must match across runtimes. At the
+// default scale the checksum is 181477376 on node, bun, deno, and bento; every
+// runtime still agrees at any fixed BENCH_SCALE.
+const SCALE = Number(process.env.BENCH_SCALE ?? "1");
+const passes = Math.max(1, Math.round(400 * SCALE));
 let acc = 0;
-for (let pass = 0; pass < 400; pass++) {
+for (let pass = 0; pass < passes; pass++) {
   for (let i = 0; i < 4000; i++) {
     // four code units: two ASCII letters that shift with i, a value past 2^16 so
     // ToUint16 has to wrap, and a Greek letter from a high code point.

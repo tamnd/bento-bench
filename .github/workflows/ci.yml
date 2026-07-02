@@ -90,15 +90,22 @@ jobs:
           echo "bento $($BENTO_BIN --version || true)"
 
       - name: Run benchmark
-        # --budget caps the timed runs of any one runtime on one workload, so the
-        # interpreter's slow compute workloads stop after a few samples instead of
-        # grinding through every run, while the fast runtimes still take the full
-        # count. That keeps the job from being dominated by the slowest cells.
+        # Keep the CI run under a couple of minutes. --skip leaves the bento
+        # interpreter out for now, since on a slow runner its compute workloads
+        # would blow the time budget; the real bento number is meant to come from
+        # the ahead-of-time compiled binary, which is the next thing to land, and
+        # the interpreter numbers are captured in local and release runs instead.
+        # BENCH_SCALE shrinks the per-run work and --budget caps the timed runs, so
+        # the fast runtimes stay quick. Set the RUNS, BUDGET, BENCH_SCALE, or SKIP
+        # repo variables to run heavier or to put bento back in.
+        env:
+          BENCH_SCALE: ${{ vars.BENCH_SCALE || '0.25' }}
         run: |
           go run ./cmd/bento-bench \
             --runs "${{ vars.RUNS || '15' }}" \
             --warmup 1 \
-            --budget "${{ vars.BUDGET || '8s' }}" \
+            --budget "${{ vars.BUDGET || '5s' }}" \
+            --skip "${{ vars.SKIP || 'bento' }}" \
             --json results.json \
             --markdown results.md
 

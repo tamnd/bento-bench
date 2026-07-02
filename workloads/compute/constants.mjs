@@ -2,11 +2,14 @@
 // iteration folds the constants into an accumulator so the read path for a
 // namespace property is exercised rather than a single constant fold. The finite
 // constants combine into a double the loop reduces to a 32-bit checksum, so the
-// result is deterministic to the last bit and must match across runtimes. The
-// checksum is -732318951 on node, bun, deno, and bento.
+// result is deterministic to the last bit and must match across runtimes. At the
+// default scale the checksum is -732318951 on node, bun, deno, and bento; every
+// runtime still agrees at any fixed BENCH_SCALE.
+const SCALE = Number(process.env.BENCH_SCALE ?? "1");
+const passes = Math.max(1, Math.round(400 * SCALE));
 let acc = 0;
 let mix = 0;
-for (let pass = 0; pass < 400; pass++) {
+for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 5000; i++) {
     // a rotating pick over the eight Math constants keeps every one live
     const m = [
