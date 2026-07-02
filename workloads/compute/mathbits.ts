@@ -3,11 +3,9 @@
 // integer multiply that keeps the low half). These are the integer and
 // single-precision operations, not the transcendental ones, so the result is
 // deterministic to the last bit and the checksum must match across runtimes. This
-// isolates the 32-bit coercion path from the rest of a program. At the default
-// scale the checksum is -1303942704 on node, bun, deno, and bento; every runtime
-// still agrees at any fixed BENCH_SCALE.
-const SCALE = Number(process.env.BENCH_SCALE ?? "1");
-const passes = Math.max(1, Math.round(400 * SCALE));
+// isolates the 32-bit coercion path from the rest of a program. The checksum is
+// -1303942704 on node, bun, deno, and bento, and every runtime agrees on it.
+const passes = 400;
 let acc = 0;
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 5000; i++) {
@@ -17,4 +15,4 @@ for (let pass = 0; pass < passes; pass++) {
     acc = (acc + Math.clz32(f)) | 0; // clz32 coerces the double to uint32
   }
 }
-process.stdout.write((acc | 0) + "\n");
+console.log(acc | 0);

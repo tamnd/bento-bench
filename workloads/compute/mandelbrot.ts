@@ -1,11 +1,8 @@
 // A tight numeric loop over a small Mandelbrot grid. It is float heavy and
 // branch heavy with no allocation in the inner loop, so it rewards runtimes
 // with a strong optimizing compiler.
-// BENCH_SCALE scales the number of rows so CI can run a lighter size without
-// editing the workload; unset or 1 is the full grid.
-const SCALE = Number(process.env.BENCH_SCALE ?? "1");
 const width = 200;
-const height = Math.max(1, Math.round(200 * SCALE));
+const height = 200;
 const maxIter = 100;
 let checksum = 0;
 
@@ -25,4 +22,4 @@ for (let py = 0; py < height; py++) {
     checksum += iter;
   }
 }
-process.stdout.write(String(checksum) + "\n");
+console.log(checksum);
