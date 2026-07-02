@@ -6,6 +6,7 @@
 const passes = 100;
 let acc = 0;
 let truthy = 0;
+const t0 = performance.now();
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 0; i < 2000; i++) {
     const n = i * 1.5 - pass;
@@ -18,4 +19,6 @@ for (let pass = 0; pass < passes; pass++) {
     if (Boolean(n) && Boolean(s)) truthy++;
   }
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(acc.toFixed(0), truthy);

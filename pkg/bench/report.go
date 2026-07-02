@@ -152,6 +152,55 @@ func memCell(m Measurement, isLeanest bool) string {
 	return s
 }
 
+// fastestCompute returns the runtime with the lowest median in-process compute
+// time in a workload, ignoring failures and runs that reported no compute. It
+// returns "" when nobody reported a compute time, which is the case for the
+// startup workload that has no timed region.
+func fastestCompute(wr WorkloadResult) string {
+	best := ""
+	var bestC time.Duration
+	for _, m := range wr.Measurements {
+		if m.Failed || m.Stats.MedianCompute <= 0 {
+			continue
+		}
+		if best == "" || m.Stats.MedianCompute < bestC {
+			best = m.Runtime
+			bestC = m.Stats.MedianCompute
+		}
+	}
+	return best
+}
+
+// computeCell renders one runtime's median in-process compute time. A failed run
+// shows as "fail", a run with no compute reading as "n/a"; the fastest is starred.
+func computeCell(m Measurement, isFastest bool) string {
+	if m.Failed {
+		return "fail"
+	}
+	if m.Stats.MedianCompute <= 0 {
+		return "n/a"
+	}
+	s := fmtDur(m.Stats.MedianCompute)
+	if isFastest {
+		return "*" + s
+	}
+	return s
+}
+
+// anyCompute reports whether any measurement in the results carried an in-process
+// compute time, so the compute section is drawn only when at least one workload
+// timed a region.
+func anyCompute(results []WorkloadResult) bool {
+	for _, wr := range results {
+		for _, m := range wr.Measurements {
+			if !m.Failed && m.Stats.MedianCompute > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func measurementFor(wr WorkloadResult, runtime string) (Measurement, bool) {
 	for _, m := range wr.Measurements {
 		if m.Runtime == runtime {
@@ -217,9 +266,44 @@ func WriteReport(w io.Writer, results []WorkloadResult, opts Options) error {
 		p.line(row.String())
 	}
 
+	writeComputeText(p, results, runtimes)
 	writeStartupText(p, results, runtimes)
 	writeBinarySizeText(p, results, runtimes)
 	return p.err
+}
+
+// writeComputeText adds the in-process compute table to the text report, mirroring
+// the markdown one: one row per workload, one column per runtime, each cell the
+// median compute time, the fastest starred. It is omitted when no workload timed a
+// region.
+func writeComputeText(p *printer, results []WorkloadResult, runtimes []string) {
+	if !anyCompute(results) {
+		return
+	}
+	p.line("")
+	p.line("Median in-process compute (performance.now() around the hot region), lower is better. * marks fastest.")
+	p.line("")
+	var head strings.Builder
+	writef(&head, "%-22s", "workload")
+	for _, rt := range runtimes {
+		writef(&head, "  %-10s", rt)
+	}
+	p.line(head.String())
+	p.line(strings.Repeat("-", head.Len()))
+	for _, wr := range results {
+		fast := fastestCompute(wr)
+		var row strings.Builder
+		writef(&row, "%-22s", wr.Category+"/"+wr.Workload)
+		for _, rt := range runtimes {
+			m, ok := measurementFor(wr, rt)
+			text := "-"
+			if ok {
+				text = computeCell(m, rt == fast)
+			}
+			writef(&row, "  %-10s", text)
+		}
+		p.line(row.String())
+	}
 }
 
 // startupCost returns each runtime's startup duration and peak memory, taken as
@@ -310,12 +394,135 @@ func WriteMarkdown(w io.Writer, results []WorkloadResult, opts Options) error {
 		p.line(row.String())
 	}
 
+	writeComputeMarkdown(p, results, runtimes)
 	writeMemoryMarkdown(p, results, runtimes)
 	writeStartupMarkdown(p, results, runtimes)
 	writeCompileMarkdown(p, results, runtimes)
 	writeBinarySizeMarkdown(p, results, runtimes)
 	writeSpeedup(p, results, runtimes)
+	writeComputeSpeedup(p, results, runtimes)
 	return p.err
+}
+
+// writeComputeMarkdown renders the in-process compute table: one row per
+// workload, one column per runtime, each cell the median compute time the
+// workload measured with performance.now() around its hot region, the fastest
+// starred. It sits next to the wall-clock table so the reader can separate the
+// runtime's compute from the process startup that the wall-clock includes, which
+// is where a runtime with a tiny cold start (the bento binary) and a runtime with
+// a fast engine (bun) trade places. The section is omitted when no workload timed
+// a region.
+func writeComputeMarkdown(p *printer, results []WorkloadResult, runtimes []string) {
+	if !anyCompute(results) {
+		return
+	}
+	p.line("")
+	p.line("## Compute time")
+	p.line("")
+	p.line("Median in-process compute over the timed runs, measured inside each workload with performance.now() around the hot region, lower is better. It excludes process startup and teardown, so it isolates the engine's compute from the cold-start floor the wall-clock table includes. A star marks the fastest runtime in each row, and a workload with no timed region shows n/a.")
+	p.line("")
+
+	var head, sep strings.Builder
+	head.WriteString("| workload |")
+	sep.WriteString("| --- |")
+	for _, rt := range runtimes {
+		writef(&head, " %s |", rt)
+		sep.WriteString(" --- |")
+	}
+	p.line(head.String())
+	p.line(sep.String())
+
+	for _, wr := range results {
+		fast := fastestCompute(wr)
+		var row strings.Builder
+		writef(&row, "| %s/%s |", wr.Category, wr.Workload)
+		for _, rt := range runtimes {
+			m, ok := measurementFor(wr, rt)
+			text := "-"
+			if ok {
+				text = computeCell(m, rt == fast)
+			}
+			writef(&row, " %s |", text)
+		}
+		p.line(row.String())
+	}
+}
+
+// writeComputeSpeedup adds bento's median compute relative to the fastest other
+// runtime per category, so the compute-only comparison is called out on its own.
+// Because process startup is out of this number, it is the honest measure of the
+// 2x-faster goal: a ratio at or below 0.50x means bento does the compute in less
+// than half the time of the fastest other runtime.
+func writeComputeSpeedup(p *printer, results []WorkloadResult, runtimes []string) {
+	if !slices.Contains(runtimes, "bento") || !anyCompute(results) {
+		return
+	}
+	type acc struct{ bento, best float64 }
+	byCat := map[string]*acc{}
+	var cats []string
+	for _, wr := range results {
+		bm, ok := measurementFor(wr, "bento")
+		if !ok || bm.Failed || bm.Stats.MedianCompute <= 0 {
+			continue
+		}
+		var bestOther time.Duration
+		haveOther := false
+		for _, m := range wr.Measurements {
+			if m.Runtime == "bento" || m.Failed || m.Stats.MedianCompute <= 0 {
+				continue
+			}
+			if !haveOther || m.Stats.MedianCompute < bestOther {
+				bestOther = m.Stats.MedianCompute
+				haveOther = true
+			}
+		}
+		if !haveOther {
+			continue
+		}
+		a := byCat[wr.Category]
+		if a == nil {
+			a = &acc{}
+			byCat[wr.Category] = a
+			cats = append(cats, wr.Category)
+		}
+		a.bento += float64(bm.Stats.MedianCompute)
+		a.best += float64(bestOther)
+	}
+	if len(cats) == 0 {
+		return
+	}
+	sort.Strings(cats)
+
+	p.line("")
+	p.line("## bento versus the fastest other runtime (compute)")
+	p.line("")
+	p.line("In-process compute only, so process startup is out of the comparison and the number reflects the engine alone. At or below 0.50x means bento does the compute in less than half the time of the fastest other runtime, the 2x-faster goal.")
+	p.line("")
+	p.line("| category | ratio | reading |")
+	p.line("| --- | --- | --- |")
+	for _, c := range cats {
+		a := byCat[c]
+		if a.best == 0 {
+			continue
+		}
+		ratio := a.bento / a.best
+		p.printf("| %s | %.2fx | %s |\n", c, ratio, computeReading(ratio))
+	}
+}
+
+// computeReading turns a bento-versus-best compute ratio into a short verdict,
+// with the 2x goal (0.50x) as the top band.
+func computeReading(ratio float64) string {
+	switch {
+	case ratio <= 0.5:
+		return "2x faster or better, goal met"
+	case ratio < 1:
+		return "faster, not yet 2x"
+	case ratio <= 1.05:
+		return "on par"
+	default:
+		return "slower, room to close"
+	}
 }
 
 // writeMemoryMarkdown renders the peak-memory table: one row per workload, one

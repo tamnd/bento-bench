@@ -10,6 +10,7 @@
 const passes = 80;
 let acc = 0;
 const words = ["alpha", "beta", "gamma", "delta"];
+const t0 = performance.now();
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 3000; i++) {
     const s = `row ${i}: ${words[i & 3]} = ${i * 1.5} (${(i & 1) === 0})`;
@@ -19,4 +20,6 @@ for (let pass = 0; pass < passes; pass++) {
     acc = (acc * 31 + s.charCodeAt(s.length - 1)) | 0;
   }
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(acc | 0);

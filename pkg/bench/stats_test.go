@@ -69,3 +69,32 @@ func TestPercentile(t *testing.T) {
 		t.Errorf("empty percentile = %v, want 0", got)
 	}
 }
+
+func TestSummarizeCompute(t *testing.T) {
+	samples := []sample{
+		{dur: 10 * time.Millisecond, compute: 3 * time.Millisecond},
+		{dur: 20 * time.Millisecond, compute: 0}, // no marker this run
+		{dur: 30 * time.Millisecond, compute: 5 * time.Millisecond},
+		{dur: 40 * time.Millisecond, compute: 7 * time.Millisecond},
+	}
+	s := summarize(samples)
+	if s.MinCompute != 3*time.Millisecond {
+		t.Errorf("minCompute = %v, want 3ms", s.MinCompute)
+	}
+	if s.MedianCompute != 5*time.Millisecond {
+		t.Errorf("medianCompute = %v, want 5ms", s.MedianCompute)
+	}
+	if s.MaxCompute != 7*time.Millisecond {
+		t.Errorf("maxCompute = %v, want 7ms", s.MaxCompute)
+	}
+}
+
+func TestSummarizeComputeAbsent(t *testing.T) {
+	samples := []sample{
+		{dur: 10 * time.Millisecond},
+		{dur: 20 * time.Millisecond},
+	}
+	if s := summarize(samples); s.MedianCompute != 0 {
+		t.Errorf("medianCompute = %v, want 0 when no run reported compute", s.MedianCompute)
+	}
+}

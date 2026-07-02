@@ -8,7 +8,10 @@ function fib(n: number): number {
 
 const reps = 5;
 let acc = 0;
+const t0 = performance.now();
 for (let i = 0; i < reps; i++) {
   acc += fib(32);
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(acc);

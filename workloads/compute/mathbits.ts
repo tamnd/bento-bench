@@ -7,6 +7,7 @@
 // 1653160564 on node, bun, deno, and bento, and every runtime agrees on it.
 const passes = 100;
 let acc = 0;
+const t0 = performance.now();
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 5000; i++) {
     acc = Math.imul(acc ^ i, 2654435761); // a 32-bit mix through imul
@@ -15,4 +16,6 @@ for (let pass = 0; pass < passes; pass++) {
     acc = (acc + Math.clz32(f)) | 0; // clz32 coerces the double to uint32
   }
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(acc | 0);

@@ -6,12 +6,15 @@ import (
 	"time"
 )
 
-// sample is one timed run: its wall-clock duration and the peak resident memory
-// the process held, in bytes. RSS is zero when the platform could not report it,
-// which summarize treats as absent rather than a real zero.
+// sample is one timed run: its wall-clock duration, the peak resident memory the
+// process held in bytes, and the in-process compute time the workload reported.
+// RSS is zero when the platform could not report it, and compute is zero when the
+// workload printed no compute marker; summarize treats each zero as absent rather
+// than a real zero.
 type sample struct {
-	dur time.Duration
-	rss int64
+	dur     time.Duration
+	rss     int64
+	compute time.Duration
 }
 
 // Stats summarizes a set of timed runs. Durations are kept in wall-clock time as
@@ -32,6 +35,16 @@ type Stats struct {
 	MinRSS    int64 `json:"minRssBytes"`
 	MedianRSS int64 `json:"medianRssBytes"`
 	MaxRSS    int64 `json:"maxRssBytes"`
+
+	// In-process compute time across the timed runs, the interval each workload
+	// measured with performance.now() around its hot region and printed to stderr.
+	// It excludes process startup and teardown, so it isolates the runtime's
+	// compute from the cold-start floor the wall-clock durations include. Zero
+	// means no run reported a compute number (a workload with no timed region, such
+	// as the startup program), so the report shows it as "n/a".
+	MinCompute    time.Duration `json:"minComputeNs"`
+	MedianCompute time.Duration `json:"medianComputeNs"`
+	MaxCompute    time.Duration `json:"maxComputeNs"`
 }
 
 // summarize reduces raw samples to Stats. It expects at least one sample; an
@@ -63,19 +76,41 @@ func summarize(samples []sample) Stats {
 	stddev := time.Duration(math.Sqrt(sumSq / float64(n)))
 
 	minRSS, medRSS, maxRSS := summarizeRSS(samples)
+	minC, medC, maxC := summarizeCompute(samples)
 
 	return Stats{
-		Runs:      n,
-		Min:       durs[0],
-		Mean:      mean,
-		Median:    percentile(durs, 0.50),
-		P90:       percentile(durs, 0.90),
-		Max:       durs[n-1],
-		Stddev:    stddev,
-		MinRSS:    minRSS,
-		MedianRSS: medRSS,
-		MaxRSS:    maxRSS,
+		Runs:          n,
+		Min:           durs[0],
+		Mean:          mean,
+		Median:        percentile(durs, 0.50),
+		P90:           percentile(durs, 0.90),
+		Max:           durs[n-1],
+		Stddev:        stddev,
+		MinRSS:        minRSS,
+		MedianRSS:     medRSS,
+		MaxRSS:        maxRSS,
+		MinCompute:    minC,
+		MedianCompute: medC,
+		MaxCompute:    maxC,
 	}
+}
+
+// summarizeCompute reduces the in-process compute side of the samples, over only
+// the runs that reported a nonzero compute time. When no run reported one the
+// three values are zero, which the report reads as "n/a", the same way the memory
+// summary treats a run with no rusage.
+func summarizeCompute(samples []sample) (minC, medC, maxC time.Duration) {
+	vals := make([]time.Duration, 0, len(samples))
+	for _, s := range samples {
+		if s.compute > 0 {
+			vals = append(vals, s.compute)
+		}
+	}
+	if len(vals) == 0 {
+		return 0, 0, 0
+	}
+	slices.Sort(vals)
+	return vals[0], percentile(vals, 0.50), vals[len(vals)-1]
 }
 
 // summarizeRSS reduces the peak-memory side of the samples, over only the runs

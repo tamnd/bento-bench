@@ -10,6 +10,7 @@ const count = 200;
 const payload = "x".repeat(512);
 
 let bytes = 0;
+const t0 = performance.now();
 for (let pass = 0; pass < 3; pass++) {
   for (let i = 0; i < count; i++) {
     writeFileSync(join(dir, "f" + i + ".txt"), payload);
@@ -19,4 +20,6 @@ for (let pass = 0; pass < 3; pass++) {
   }
 }
 rmSync(dir, { recursive: true, force: true });
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(bytes);
