@@ -15,7 +15,7 @@ A run counts as failed if the process exits nonzero or times out, and a failed c
 The workloads are grouped by area so the table can be read by what it stresses:
 
 - `startup/` the smallest possible program, which isolates cold start and teardown.
-- `compute/` call-heavy and numeric loops (Fibonacci, Mandelbrot, string churn, primitive coercion, number formatting, the bit-exact Math methods, the Math and Number constants, template-literal building, and String.fromCharCode construction) that lean on the engine.
+- `compute/` call-heavy and numeric loops (Fibonacci, Mandelbrot, string churn, primitive coercion, number formatting, the bit-exact Math methods, the Math and Number constants, template-literal building, String.fromCharCode construction, and string replace and replaceAll rewriting) that lean on the engine.
 - `json/` stringify and parse round trips that mix serialization with allocation.
 - `fs/` batches of small file writes and reads through node:fs, which leans on the host bridge.
 
