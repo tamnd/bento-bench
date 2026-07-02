@@ -15,7 +15,7 @@ func main() {
 	{
 		var i float64 = 0
 		for ; i < words; i++ {
-			s = value.Concat(s, value.Concat(value.Concat(value.FromGoString("word"), value.NumberToString((math.Mod(i, 100)))), value.FromGoString(" ")))
+			s = value.Concat(s, value.FromGoString("word").ConcatN(value.NumberToString((math.Mod(i, 100))), value.FromGoString(" ")))
 		}
 	}
 	var count float64 = 0
