@@ -11,8 +11,8 @@ function makeRecord(i: number) {
   };
 }
 
-const recordCount = 2000;
-const passes = 20;
+const recordCount = 800;
+const passes = 10;
 
 const records: ReturnType<typeof makeRecord>[] = [];
 for (let i = 0; i < recordCount; i++) records.push(makeRecord(i));

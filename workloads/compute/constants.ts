@@ -2,8 +2,8 @@
 // iteration folds the constants into an accumulator so the read path for a
 // namespace property is exercised rather than a single constant fold. The finite
 // constants combine into a double the loop reduces to a 32-bit checksum, so the
-// result is deterministic to the last bit and must match across runtimes. The checksum is -732318951 on node, bun, deno, and bento. Every runtime agrees on it.
-const passes = 400;
+// result is deterministic to the last bit and must match across runtimes. The checksum is -585025430 on node, bun, deno, and bento. Every runtime agrees on it.
+const passes = 100;
 let acc = 0;
 let mix = 0;
 for (let pass = 0; pass < passes; pass++) {

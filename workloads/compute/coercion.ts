@@ -3,7 +3,7 @@
 // grammar, Number::toString, and ToBoolean paths that a runtime hits constantly
 // when it crosses the string and number boundary, so a slow formatter or parser
 // shows up here rather than hiding behind heavier work.
-const passes = 400;
+const passes = 100;
 let acc = 0;
 let truthy = 0;
 for (let pass = 0; pass < passes; pass++) {

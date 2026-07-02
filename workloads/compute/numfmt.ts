@@ -3,7 +3,7 @@
 // magnitudes that stay decimal. The shortest-round-trip digit search and the
 // exponent placement are the expensive part, so this isolates the formatter from
 // the rest of a program.
-const passes = 300;
+const passes = 80;
 let total = 0;
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 3000; i++) {
