@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -123,13 +125,21 @@ func runCommand(ctx context.Context, bin string, args []string, timeout time.Dur
 	cmd := exec.CommandContext(runCtx, bin, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// Capture stderr so the in-process compute marker a workload prints there can
+	// be read back. The checksum stays on stdout, which is left discarded, so the
+	// marker never mixes with the workload's real output.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	start := time.Now()
 	err := cmd.Run()
 	elapsed := time.Since(start)
 
-	s := sample{dur: elapsed, rss: maxRSSBytes(cmd.ProcessState)}
+	s := sample{
+		dur:     elapsed,
+		rss:     maxRSSBytes(cmd.ProcessState),
+		compute: parseComputeMS(stderr.Bytes()),
+	}
 
 	if runCtx.Err() == context.DeadlineExceeded {
 		return s, errors.New("timeout")
@@ -138,6 +148,35 @@ func runCommand(ctx context.Context, bin string, args []string, timeout time.Dur
 		return s, err
 	}
 	return s, nil
+}
+
+// computeMarker is the stderr prefix a workload prints its in-process compute
+// time behind, a float in milliseconds measured with performance.now() around the
+// hot region. Every runtime the harness drives has performance.now(), so the same
+// workload emits the same marker on node, bun, deno, and the bento binary.
+const computeMarker = "compute_ms="
+
+// parseComputeMS scans stderr for the last compute marker a workload emitted and
+// returns the milliseconds it carries as a duration, or zero when there is none.
+// The last marker wins, so a workload that brackets more than one region and
+// prints a running figure reports the final one, and a workload that prints no
+// marker (the startup program) reports no compute time. A malformed or negative
+// value is treated as absent rather than trusted.
+func parseComputeMS(stderr []byte) time.Duration {
+	text := string(stderr)
+	idx := strings.LastIndex(text, computeMarker)
+	if idx < 0 {
+		return 0
+	}
+	rest := text[idx+len(computeMarker):]
+	if nl := strings.IndexByte(rest, '\n'); nl >= 0 {
+		rest = rest[:nl]
+	}
+	ms, err := strconv.ParseFloat(strings.TrimSpace(rest), 64)
+	if err != nil || ms < 0 {
+		return 0
+	}
+	return time.Duration(ms * float64(time.Millisecond))
 }
 
 // collect runs one command through the warmup and timed passes and reduces the
@@ -289,6 +328,10 @@ func logCell(w io.Writer, m Measurement, wantRuns int) {
 			compile += fmt.Sprintf(", binary %s", fmtBytes(m.BinarySize))
 		}
 	}
-	_, _ = fmt.Fprintf(w, "    %-6s %9s  %9s  (%s%s)\n",
-		m.Runtime, fmtDur(m.Stats.Median), fmtBytes(m.Stats.MedianRSS), runs, compile)
+	compute := "-"
+	if m.Stats.MedianCompute > 0 {
+		compute = fmtDur(m.Stats.MedianCompute)
+	}
+	_, _ = fmt.Fprintf(w, "    %-6s wall %9s  compute %9s  mem %9s  (%s%s)\n",
+		m.Runtime, fmtDur(m.Stats.Median), compute, fmtBytes(m.Stats.MedianRSS), runs, compile)
 }

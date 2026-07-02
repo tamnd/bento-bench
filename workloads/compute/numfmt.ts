@@ -5,6 +5,7 @@
 // the rest of a program.
 const passes = 80;
 let total = 0;
+const t0 = performance.now();
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 3000; i++) {
     const x = i * 1.000001;
@@ -14,4 +15,6 @@ for (let pass = 0; pass < passes; pass++) {
     total += String(-x).length;
   }
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(total);

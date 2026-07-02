@@ -6,6 +6,7 @@
 const passes = 100;
 let acc = 0;
 let mix = 0;
+const t0 = performance.now();
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 5000; i++) {
     // a rotating pick over the eight Math constants keeps every one live
@@ -25,4 +26,6 @@ for (let pass = 0; pass < passes; pass++) {
     acc = (acc ^ ((Number.EPSILON * i * 1e18) | 0)) | 0;
   }
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(acc | 0);

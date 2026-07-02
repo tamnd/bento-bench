@@ -122,3 +122,27 @@ func TestCompileStepCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestParseComputeMS(t *testing.T) {
+	cases := []struct {
+		name   string
+		stderr string
+		want   time.Duration
+	}{
+		{"plain", "compute_ms=8.5\n", 8500 * time.Microsecond},
+		{"integer", "compute_ms=12\n", 12 * time.Millisecond},
+		{"no newline", "compute_ms=3.25", 3250 * time.Microsecond},
+		{"last wins", "compute_ms=1\ncompute_ms=4\n", 4 * time.Millisecond},
+		{"amid noise", "warning: something\ncompute_ms=2.0\nbye\n", 2 * time.Millisecond},
+		{"absent", "no marker here\n", 0},
+		{"malformed", "compute_ms=abc\n", 0},
+		{"negative", "compute_ms=-5\n", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := parseComputeMS([]byte(c.stderr)); got != c.want {
+				t.Errorf("parseComputeMS(%q) = %v, want %v", c.stderr, got, c.want)
+			}
+		})
+	}
+}

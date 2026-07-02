@@ -8,6 +8,7 @@
 // deterministic to the last bit, so it must match across runtimes. The checksum is 2101432840 on node, bun, deno, and bento. Every runtime agrees on it.
 const passes = 100;
 let acc = 0;
+const t0 = performance.now();
 for (let pass = 0; pass < passes; pass++) {
   for (let i = 1; i < 3000; i++) {
     const row = "a:" + (i % 97) + ":b:" + (i % 13) + ":c";
@@ -19,4 +20,6 @@ for (let pass = 0; pass < passes; pass++) {
     acc = (acc * 31 + first.charCodeAt(first.length - 1)) | 0;
   }
 }
+const t1 = performance.now();
+console.error("compute_ms=" + (t1 - t0));
 console.log(acc | 0);
