@@ -3,10 +3,7 @@
 // grammar, Number::toString, and ToBoolean paths that a runtime hits constantly
 // when it crosses the string and number boundary, so a slow formatter or parser
 // shows up here rather than hiding behind heavier work.
-// BENCH_SCALE scales the outer pass count so CI can run a lighter size without
-// editing the workload; unset or 1 is the full size.
-const SCALE = Number(process.env.BENCH_SCALE ?? "1");
-const passes = Math.max(1, Math.round(400 * SCALE));
+const passes = 400;
 let acc = 0;
 let truthy = 0;
 for (let pass = 0; pass < passes; pass++) {
@@ -21,4 +18,4 @@ for (let pass = 0; pass < passes; pass++) {
     if (Boolean(n) && Boolean(s)) truthy++;
   }
 }
-process.stdout.write(acc.toFixed(0) + " " + truthy + "\n");
+console.log(acc.toFixed(0), truthy);

@@ -24,18 +24,25 @@ type Runtime struct {
 
 // CompileStep describes how a two-phase runtime turns a workload into a native
 // binary. Args are the fixed arguments before the output and input; the harness
-// appends the "-o <binary>" output and the workload path, so the full command is
-// "<Bin> <Args...> -o <binary> <workload>".
+// appends the output flag with the binary path and the workload path, so the
+// full command is "<Bin> <Args...> <OutFlag> <binary> <workload>". OutFlag names
+// the compiler's output option, which is "-o" for deno and bento but "--outfile"
+// for bun; an empty OutFlag defaults to "-o".
 type CompileStep struct {
-	Bin  string
-	Args []string
+	Bin     string
+	Args    []string
+	OutFlag string
 }
 
 // command builds the exec arguments for the compile step of a two-phase runtime.
 func (c *CompileStep) command(workload, out string) (string, []string) {
+	flag := c.OutFlag
+	if flag == "" {
+		flag = "-o"
+	}
 	args := make([]string, 0, len(c.Args)+3)
 	args = append(args, c.Args...)
-	args = append(args, "-o", out, workload)
+	args = append(args, flag, out, workload)
 	return c.Bin, args
 }
 
@@ -46,26 +53,29 @@ var AOTBuildArgs = []string{"build"}
 
 // DefaultRuntimes returns the four runtimes the harness knows about. bento is
 // located through BENTO_BIN when set so CI can point at a freshly built binary,
-// otherwise it is looked up on PATH like the others. bentoAOT selects bento's
-// ahead-of-time path: instead of the interpreter, the workload is compiled to a
-// Go binary and the binary is timed, with the compile step timed separately.
-func DefaultRuntimes(bentoAOT bool) []Runtime {
+// otherwise it is looked up on PATH like the others.
+//
+// Three of the four are measured through a compile-to-binary path, so the run
+// column and the binary-size column compare like with like: bento compiles each
+// workload to a native Go binary with `bento build`, bun compiles to a single
+// executable with `bun build --compile`, and deno compiles with `deno compile`.
+// Each binary is what gets timed, with the compile step timed on its own.
+//
+// node stays the single-phase interpreter reference: its single-executable path
+// (SEA) is experimental, needs the external postject tool, and does not accept
+// TypeScript directly, so compiling a .ts workload to one node binary is not a
+// clean single command the way the other three are. node therefore carries no
+// binary-size cell rather than a number it did not earn the same way.
+func DefaultRuntimes() []Runtime {
 	bento := os.Getenv("BENTO_BIN")
 	if bento == "" {
 		bento = "bento"
 	}
-	bentoRT := Runtime{Name: "bento", Bin: bento, Args: []string{"run"}}
-	if bentoAOT {
-		bentoRT = Runtime{
-			Name:    "bento",
-			Compile: &CompileStep{Bin: bento, Args: AOTBuildArgs},
-		}
-	}
 	return []Runtime{
 		{Name: "node", Bin: "node"},
-		{Name: "deno", Bin: "deno", Args: []string{"run", "--quiet", "--allow-read", "--allow-write", "--allow-env"}},
-		{Name: "bun", Bin: "bun", Args: []string{"run"}},
-		bentoRT,
+		{Name: "deno", Compile: &CompileStep{Bin: "deno", Args: []string{"compile", "--quiet", "--allow-read", "--allow-write", "--allow-env"}}},
+		{Name: "bun", Compile: &CompileStep{Bin: "bun", Args: []string{"build", "--compile"}, OutFlag: "--outfile"}},
+		{Name: "bento", Compile: &CompileStep{Bin: bento, Args: AOTBuildArgs}},
 	}
 }
 

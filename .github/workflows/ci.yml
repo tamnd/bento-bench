@@ -58,33 +58,37 @@ jobs:
           check-latest: true
           cache: true
 
+      # Pin concrete versions so a comparison across time moves only when we
+      # deliberately bump one, not whenever a floating tag rolls forward.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.18.0"
 
       - name: Setup Deno
         uses: denoland/setup-deno@v2
         with:
-          deno-version: v2.x
+          deno-version: v2.7.7
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.3.11"
 
       - name: Build bento
-        # Only when the run actually measures bento. The clone and build of the
-        # typescript-go fork is the slowest step in the job, so while the bench
-        # skips the interpreter there is nothing to build. Clone bento at main and
-        # build it, rather than go install @main, so the benchmark runs the true
-        # latest commit instead of a proxy-cached older one, while dependency
-        # checksums still verify through the proxy.
-        if: ${{ !contains(vars.SKIP || 'bento', 'bento') }}
+        # bento is measured through its ahead-of-time path, so the benchmark
+        # compiles each workload with `bento build` and times the binary. Clone
+        # bento at main and build it, rather than go install @main, so the run
+        # uses the true latest commit instead of a proxy-cached older one, while
+        # dependency checksums still verify through the proxy. BENTO_MODULE_ROOT
+        # points the build's link step at this checkout, since it holds the value
+        # runtime the generated Go imports and the binary lives outside it.
+        if: ${{ !contains(vars.SKIP || '', 'bento') }}
         run: |
           git clone --depth 1 https://github.com/tamnd/bento.git "$RUNNER_TEMP/bento"
           ( cd "$RUNNER_TEMP/bento" && go build -o "$RUNNER_TEMP/bento-bin" ./cmd/bento )
           echo "BENTO_BIN=$RUNNER_TEMP/bento-bin" >> "$GITHUB_ENV"
+          echo "BENTO_MODULE_ROOT=$RUNNER_TEMP/bento" >> "$GITHUB_ENV"
 
       - name: Versions
         run: |
@@ -94,22 +98,18 @@ jobs:
           echo "bento ${BENTO_BIN:+$($BENTO_BIN --version || true)}"
 
       - name: Run benchmark
-        # Keep the CI run under a couple of minutes. --skip leaves the bento
-        # interpreter out for now, since on a slow runner its compute workloads
-        # would blow the time budget; the real bento number is meant to come from
-        # the ahead-of-time compiled binary, which is the next thing to land, and
-        # the interpreter numbers are captured in local and release runs instead.
-        # BENCH_SCALE shrinks the per-run work and --budget caps the timed runs, so
-        # the fast runtimes stay quick. Set the RUNS, BUDGET, BENCH_SCALE, or SKIP
-        # repo variables to run heavier or to put bento back in.
-        env:
-          BENCH_SCALE: ${{ vars.BENCH_SCALE || '0.25' }}
+        # The workloads are a fixed size, so --budget caps the timed runs to keep
+        # every runtime quick while the numbers stay comparable across runs. The
+        # budget bounds the compile passes too, which matters now that bento, bun,
+        # and deno each compile every workload to a binary before it is timed. Set
+        # the RUNS, BUDGET, or SKIP repo variables to run heavier or to leave a
+        # runtime out.
         run: |
           go run ./cmd/bento-bench \
             --runs "${{ vars.RUNS || '15' }}" \
             --warmup 1 \
             --budget "${{ vars.BUDGET || '5s' }}" \
-            --skip "${{ vars.SKIP || 'bento' }}" \
+            --skip "${{ vars.SKIP || '' }}" \
             --json results.json \
             --markdown results.md
 

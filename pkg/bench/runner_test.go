@@ -18,8 +18,8 @@ func TestDiscoverWorkloads(t *testing.T) {
 	}
 	must(os.MkdirAll(filepath.Join(dir, "compute"), 0o755))
 	must(os.MkdirAll(filepath.Join(dir, "fs"), 0o755))
-	must(os.WriteFile(filepath.Join(dir, "compute", "fib.mjs"), []byte("1"), 0o644))
-	must(os.WriteFile(filepath.Join(dir, "fs", "rw.mjs"), []byte("1"), 0o644))
+	must(os.WriteFile(filepath.Join(dir, "compute", "fib.ts"), []byte("1"), 0o644))
+	must(os.WriteFile(filepath.Join(dir, "fs", "rw.js"), []byte("1"), 0o644))
 	must(os.WriteFile(filepath.Join(dir, "notes.md"), []byte("skip"), 0o644))
 
 	got, err := DiscoverWorkloads(dir)
@@ -36,8 +36,8 @@ func TestDiscoverWorkloads(t *testing.T) {
 
 func TestRuntimeRunArgs(t *testing.T) {
 	rt := Runtime{Name: "deno", Bin: "deno", Args: []string{"run", "--quiet"}}
-	args := rt.runArgs("/tmp/x.mjs")
-	want := []string{"run", "--quiet", "/tmp/x.mjs"}
+	args := rt.runArgs("/tmp/x.ts")
+	want := []string{"run", "--quiet", "/tmp/x.ts"}
 	if len(args) != len(want) {
 		t.Fatalf("args = %v, want %v", args, want)
 	}

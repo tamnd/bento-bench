@@ -218,6 +218,7 @@ func WriteReport(w io.Writer, results []WorkloadResult, opts Options) error {
 	}
 
 	writeStartupText(p, results, runtimes)
+	writeBinarySizeText(p, results, runtimes)
 	return p.err
 }
 
@@ -312,6 +313,7 @@ func WriteMarkdown(w io.Writer, results []WorkloadResult, opts Options) error {
 	writeMemoryMarkdown(p, results, runtimes)
 	writeStartupMarkdown(p, results, runtimes)
 	writeCompileMarkdown(p, results, runtimes)
+	writeBinarySizeMarkdown(p, results, runtimes)
 	writeSpeedup(p, results, runtimes)
 	return p.err
 }
@@ -375,11 +377,11 @@ func writeStartupMarkdown(p *printer, results []WorkloadResult, runtimes []strin
 	}
 }
 
-// writeCompileMarkdown renders the ahead-of-time compile step for the runtimes
-// that have one (bento's AOT path), so the cost of turning TypeScript into a Go
-// binary is visible next to the speed of the binary it produced. The section is
-// omitted when no runtime reported a compile step, which is the case for the
-// interpreter path and for every single-phase runtime.
+// writeCompileMarkdown renders the compile step for the runtimes that have one
+// (bento, bun, and deno all compile a workload to a single executable), so the
+// cost of turning TypeScript into a binary is visible next to the speed of the
+// binary it produced. The section is omitted when no runtime reported a compile
+// step, which is the case for node's interpreter path.
 func writeCompileMarkdown(p *printer, results []WorkloadResult, runtimes []string) {
 	twoPhase := make([]string, 0, len(runtimes))
 	for _, rt := range runtimes {
@@ -433,6 +435,74 @@ func anyCompile(results []WorkloadResult, runtime string) bool {
 		}
 	}
 	return false
+}
+
+// binarySize returns each compiling runtime's median produced-binary size in
+// bytes, taken over the workloads where it reported one. A runtime that never
+// compiled a binary (the interpreter path) is absent from the map, so it carries
+// no size cell rather than a false zero.
+func binarySize(results []WorkloadResult, runtimes []string) map[string]int64 {
+	sizes := map[string][]int64{}
+	for _, wr := range results {
+		for _, rt := range runtimes {
+			m, ok := measurementFor(wr, rt)
+			if !ok || m.Failed || m.BinarySize <= 0 {
+				continue
+			}
+			sizes[rt] = append(sizes[rt], m.BinarySize)
+		}
+	}
+	out := map[string]int64{}
+	for rt, ss := range sizes {
+		slices.Sort(ss)
+		out[rt] = medianInt64(ss)
+	}
+	return out
+}
+
+// writeBinarySizeMarkdown renders the size of the single executable each
+// compiling runtime produces, so the native footprint is comparable like with
+// like: bento's Go binary against bun's and deno's bundled runtimes. node is
+// absent because it stays the interpreter reference with no compiled binary. The
+// section is omitted when no runtime produced a binary.
+func writeBinarySizeMarkdown(p *printer, results []WorkloadResult, runtimes []string) {
+	sizes := binarySize(results, runtimes)
+	if len(sizes) == 0 {
+		return
+	}
+	p.line("")
+	p.line("## Binary size")
+	p.line("")
+	p.line("Median size of the single executable each runtime compiles a workload into, lower is better. node stays the interpreter reference, so it compiles no binary and is left out.")
+	p.line("")
+	p.line("| runtime | binary |")
+	p.line("| --- | --- |")
+	for _, rt := range runtimes {
+		s, ok := sizes[rt]
+		if !ok {
+			continue
+		}
+		p.printf("| %s | %s |\n", rt, fmtBytes(s))
+	}
+}
+
+// writeBinarySizeText adds the binary-size summary to the text report, one line
+// per compiling runtime, so the native footprint sits next to the speed and
+// memory tables.
+func writeBinarySizeText(p *printer, results []WorkloadResult, runtimes []string) {
+	sizes := binarySize(results, runtimes)
+	if len(sizes) == 0 {
+		return
+	}
+	p.line("")
+	p.line("Binary size (median single executable each runtime compiles a workload into):")
+	for _, rt := range runtimes {
+		s, ok := sizes[rt]
+		if !ok {
+			continue
+		}
+		p.printf("  %-6s %s\n", rt, fmtBytes(s))
+	}
 }
 
 // writeSpeedup adds a short section showing bento's median relative to the

@@ -22,9 +22,11 @@ type Workload struct {
 	Path     string
 }
 
-// DiscoverWorkloads walks a directory and returns every .mjs, .js, and .ts file
-// as a workload, using the immediate parent directory as the category. Results
-// are sorted so runs are deterministic.
+// DiscoverWorkloads walks a directory and returns every .ts, .js, and .mjs file
+// as a workload, using the immediate parent directory as the category. The
+// workloads are TypeScript; the JavaScript extensions stay accepted so a plain
+// drop-in file can be measured alongside them. Results are sorted so runs are
+// deterministic.
 func DiscoverWorkloads(root string) ([]Workload, error) {
 	var out []Workload
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -35,7 +37,7 @@ func DiscoverWorkloads(root string) ([]Workload, error) {
 			return nil
 		}
 		switch strings.ToLower(filepath.Ext(path)) {
-		case ".mjs", ".js", ".ts":
+		case ".ts", ".js", ".mjs":
 		default:
 			return nil
 		}
@@ -89,15 +91,17 @@ type Options struct {
 const minTimedRuns = 3
 
 // Measurement is the timing of one runtime on one workload. For a two-phase
-// runtime (bento's AOT path), Compile carries the separate timing of the
-// compile step and Stats is the timing of the produced binary; for a single
-// phase runtime Compile is nil and Stats is the whole invocation.
+// runtime (a compile-to-binary path), Compile carries the separate timing of the
+// compile step, Stats is the timing of the produced binary, and BinarySize is the
+// size of that binary in bytes; for a single phase runtime Compile is nil,
+// BinarySize is zero, and Stats is the whole invocation.
 type Measurement struct {
-	Runtime string `json:"runtime"`
-	Stats   Stats  `json:"stats"`
-	Compile *Stats `json:"compile,omitempty"`
-	Failed  bool   `json:"failed"`
-	Note    string `json:"note,omitempty"`
+	Runtime    string `json:"runtime"`
+	Stats      Stats  `json:"stats"`
+	Compile    *Stats `json:"compile,omitempty"`
+	BinarySize int64  `json:"binary_size,omitempty"`
+	Failed     bool   `json:"failed"`
+	Note       string `json:"note,omitempty"`
 }
 
 // WorkloadResult is every runtime's measurement for a single workload.
@@ -187,11 +191,15 @@ func measure(ctx context.Context, rt Runtime, w Workload, opts Options) Measurem
 	if err != nil {
 		return failed(rt.Name, errors.New("compile: "+err.Error()))
 	}
+	var size int64
+	if info, statErr := os.Stat(bin); statErr == nil {
+		size = info.Size()
+	}
 	run, err := collect(ctx, bin, nil, opts)
 	if err != nil {
 		return failed(rt.Name, errors.New("run: "+err.Error()))
 	}
-	return Measurement{Runtime: rt.Name, Stats: run, Compile: &compile}
+	return Measurement{Runtime: rt.Name, Stats: run, Compile: &compile, BinarySize: size}
 }
 
 // tempBinaryPath returns a path for a compiled workload binary and a cleanup
@@ -262,6 +270,9 @@ func logCell(w io.Writer, m Measurement, wantRuns int) {
 	compile := ""
 	if m.Compile != nil {
 		compile = fmt.Sprintf(", compile %s", fmtDur(m.Compile.Median))
+		if m.BinarySize > 0 {
+			compile += fmt.Sprintf(", binary %s", fmtBytes(m.BinarySize))
+		}
 	}
 	_, _ = fmt.Fprintf(w, "    %-6s %9s  %9s  (%s%s)\n",
 		m.Runtime, fmtDur(m.Stats.Median), fmtBytes(m.Stats.MedianRSS), runs, compile)
