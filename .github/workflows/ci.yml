@@ -74,9 +74,13 @@ jobs:
           bun-version: latest
 
       - name: Build bento
-        # Clone bento at main and build it, rather than go install @main, so the
-        # benchmark always runs the true latest commit instead of a proxy-cached
-        # older one, while dependency checksums still verify through the proxy.
+        # Only when the run actually measures bento. The clone and build of the
+        # typescript-go fork is the slowest step in the job, so while the bench
+        # skips the interpreter there is nothing to build. Clone bento at main and
+        # build it, rather than go install @main, so the benchmark runs the true
+        # latest commit instead of a proxy-cached older one, while dependency
+        # checksums still verify through the proxy.
+        if: ${{ !contains(vars.SKIP || 'bento', 'bento') }}
         run: |
           git clone --depth 1 https://github.com/tamnd/bento.git "$RUNNER_TEMP/bento"
           ( cd "$RUNNER_TEMP/bento" && go build -o "$RUNNER_TEMP/bento-bin" ./cmd/bento )
@@ -87,7 +91,7 @@ jobs:
           echo "node $(node --version)"
           echo "deno $(deno --version | head -1)"
           echo "bun  $(bun --version)"
-          echo "bento $($BENTO_BIN --version || true)"
+          echo "bento ${BENTO_BIN:+$($BENTO_BIN --version || true)}"
 
       - name: Run benchmark
         # Keep the CI run under a couple of minutes. --skip leaves the bento
