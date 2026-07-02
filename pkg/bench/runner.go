@@ -240,7 +240,7 @@ func logf(w io.Writer, format string, args ...any) {
 	if w == nil {
 		return
 	}
-	fmt.Fprintf(w, format, args...)
+	_, _ = fmt.Fprintf(w, format, args...)
 }
 
 // logCell reports the outcome of one measurement: the median duration and peak
@@ -252,7 +252,7 @@ func logCell(w io.Writer, m Measurement, wantRuns int) {
 		return
 	}
 	if m.Failed {
-		fmt.Fprintf(w, "    %-6s fail: %s\n", m.Runtime, m.Note)
+		_, _ = fmt.Fprintf(w, "    %-6s fail: %s\n", m.Runtime, m.Note)
 		return
 	}
 	runs := fmt.Sprintf("%d runs", m.Stats.Runs)
@@ -263,6 +263,6 @@ func logCell(w io.Writer, m Measurement, wantRuns int) {
 	if m.Compile != nil {
 		compile = fmt.Sprintf(", compile %s", fmtDur(m.Compile.Median))
 	}
-	fmt.Fprintf(w, "    %-6s %9s  %9s  (%s%s)\n",
+	_, _ = fmt.Fprintf(w, "    %-6s %9s  %9s  (%s%s)\n",
 		m.Runtime, fmtDur(m.Stats.Median), fmtBytes(m.Stats.MedianRSS), runs, compile)
 }
