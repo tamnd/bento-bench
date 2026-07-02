@@ -76,6 +76,11 @@ The published numbers come from CI, which pins each runtime to a concrete versio
 
 The CI run prints the exact resolved versions in a "Versions" step before the benchmark, so every published result carries the versions it was produced with. A local run uses whatever `node`, `deno`, `bun`, and `go` are on your PATH, which is why a local run is a snapshot rather than the number of record.
 
+## Results
+
+Full runs are checked in under `reports/`, one file per dated run, each with the speed, memory, startup, compile-step, and binary-size tables side by side.
+The latest is [reports/2026-07-02.md](reports/2026-07-02.md), which is the first run where every compute workload compiles: bento is fastest on the tight numeric loops and cold start, leanest on memory almost everywhere, and slowest on the string workloads, which is the baseline the value-runtime optimization pass will be measured against.
+
 ## A note on fairness
 
 Wall-clock benchmarks are sensitive to the machine, the load, and the runtime versions.
