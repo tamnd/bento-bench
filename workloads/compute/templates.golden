@@ -17,7 +17,7 @@ func main() {
 			{
 				var i int32 = 1
 				for ; float64(i) < 3000; i++ {
-					var s value.BStr = value.FromGoString("row ").ConcatN(value.NumberToString(float64(i)), value.FromGoString(": "), words.At(float64(value.ToInt32(float64(i))&value.ToInt32(3))), value.FromGoString(" = "), value.NumberToString(float64(i)*1.5), value.FromGoString(" ("), value.BoolToString((float64(value.ToInt32(float64(i))&value.ToInt32(1))) == 0), value.FromGoString(")"))
+					var s value.BStr = value.FromGoString("row ").ConcatN(value.NumberToString(float64(i)), value.FromGoString(": "), words.At(float64((i)&3)), value.FromGoString(" = "), value.NumberToString(float64(i)*1.5), value.FromGoString(" ("), value.BoolToString((float64((i)&1)) == 0), value.FromGoString(")"))
 					acc = (value.ToInt32(float64(acc)*31 + s.Length())) | 0
 					acc = (value.ToInt32(float64(acc)*31 + s.CharCodeAt(0))) | 0
 					acc = (value.ToInt32(float64(acc)*31 + s.CharCodeAt(s.Length()-1))) | 0
@@ -27,5 +27,5 @@ func main() {
 	}
 	var t1 float64 = value.PerformanceNow()
 	value.ConsoleError(value.Concat(value.FromGoString("compute_ms="), value.NumberToString((t1 - t0))))
-	value.ConsoleLog(value.NumberToString(float64(value.ToInt32(float64(acc)) | value.ToInt32(0))))
+	value.ConsoleLog(value.NumberToString(float64(acc)))
 }

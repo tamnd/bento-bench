@@ -20,7 +20,7 @@ func main() {
 					var n float64 = float64(i)*1.5 - pass
 					var s value.BStr = value.NumberToString(n)
 					acc = acc + value.StringToNumber(s)
-					acc = acc + value.StringToNumber(value.Concat(value.FromGoString("0x"), value.NumberToStringRadix((float64(value.ToInt32(float64(i))&value.ToInt32(0xff))), 16)))
+					acc = acc + value.StringToNumber(value.Concat(value.FromGoString("0x"), value.NumberToStringRadix((float64((i)&255)), 16)))
 					if value.NumberToBool(n) && value.StringToBool(s) {
 						truthy++
 					}
