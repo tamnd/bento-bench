@@ -84,6 +84,58 @@ func cell(m Measurement, isFastest bool) string {
 	return s
 }
 
+// bold wraps a cell in Markdown bold, the way the best value in a row is marked
+// in the Markdown tables. The text tables keep the leading star instead, since a
+// terminal has no bold, so the star and the bold never appear together.
+func bold(s string) string {
+	return "**" + s + "**"
+}
+
+// cellMD renders one runtime's median for a Markdown table. It mirrors cell but
+// marks the fastest runtime with bold rather than a leading star, which reads as
+// the highlighted value a Markdown viewer renders rather than a stray asterisk.
+func cellMD(m Measurement, isFastest bool) string {
+	if m.Failed {
+		return "fail"
+	}
+	s := fmtDur(m.Stats.Median)
+	if isFastest {
+		return bold(s)
+	}
+	return s
+}
+
+// memCellMD renders one runtime's median peak memory for a Markdown table,
+// bolding the leanest. A run with no memory reading stays plain "n/a" so an
+// absent number is never bolded as if it were the winner.
+func memCellMD(m Measurement, isLeanest bool) string {
+	if m.Failed {
+		return "fail"
+	}
+	s := fmtBytes(m.Stats.MedianRSS)
+	if isLeanest && s != "n/a" {
+		return bold(s)
+	}
+	return s
+}
+
+// computeCellMD renders one runtime's median in-process compute time for a
+// Markdown table, bolding the fastest. A run with no compute reading stays plain
+// "n/a".
+func computeCellMD(m Measurement, isFastest bool) string {
+	if m.Failed {
+		return "fail"
+	}
+	if m.Stats.MedianCompute <= 0 {
+		return "n/a"
+	}
+	s := fmtDur(m.Stats.MedianCompute)
+	if isFastest {
+		return bold(s)
+	}
+	return s
+}
+
 // fmtDur prints a duration in a compact, human-scaled form.
 func fmtDur(d time.Duration) string {
 	switch {
@@ -367,7 +419,7 @@ func WriteMarkdown(w io.Writer, results []WorkloadResult, opts Options) error {
 
 	p.line("# bento benchmark")
 	p.line("")
-	p.printf("Median wall-clock over %d runs (%d warmup), lower is better. A star marks the fastest runtime in each row.\n\n", opts.Runs, opts.Warmup)
+	p.printf("Median wall-clock over %d runs (%d warmup), lower is better. The fastest runtime in each row is shown in bold.\n\n", opts.Runs, opts.Warmup)
 
 	var head, sep strings.Builder
 	head.WriteString("| workload |")
@@ -387,7 +439,7 @@ func WriteMarkdown(w io.Writer, results []WorkloadResult, opts Options) error {
 			m, ok := measurementFor(wr, rt)
 			text := "-"
 			if ok {
-				text = cell(m, rt == fast)
+				text = cellMD(m, rt == fast)
 			}
 			writef(&row, " %s |", text)
 		}
@@ -419,7 +471,7 @@ func writeComputeMarkdown(p *printer, results []WorkloadResult, runtimes []strin
 	p.line("")
 	p.line("## Compute time")
 	p.line("")
-	p.line("Median in-process compute over the timed runs, measured inside each workload with performance.now() around the hot region, lower is better. It excludes process startup and teardown, so it isolates the engine's compute from the cold-start floor the wall-clock table includes. A star marks the fastest runtime in each row, and a workload with no timed region shows n/a.")
+	p.line("Median in-process compute over the timed runs, measured inside each workload with performance.now() around the hot region, lower is better. It excludes process startup and teardown, so it isolates the engine's compute from the cold-start floor the wall-clock table includes. The fastest runtime in each row is shown in bold, and a workload with no timed region shows n/a.")
 	p.line("")
 
 	var head, sep strings.Builder
@@ -440,7 +492,7 @@ func writeComputeMarkdown(p *printer, results []WorkloadResult, runtimes []strin
 			m, ok := measurementFor(wr, rt)
 			text := "-"
 			if ok {
-				text = computeCell(m, rt == fast)
+				text = computeCellMD(m, rt == fast)
 			}
 			writef(&row, " %s |", text)
 		}
@@ -531,7 +583,7 @@ func writeMemoryMarkdown(p *printer, results []WorkloadResult, runtimes []string
 	p.line("")
 	p.line("## Peak memory")
 	p.line("")
-	p.line("Median peak resident memory over the timed runs, lower is better. A star marks the leanest runtime in each row.")
+	p.line("Median peak resident memory over the timed runs, lower is better. The leanest runtime in each row is shown in bold.")
 	p.line("")
 
 	var head, sep strings.Builder
@@ -552,7 +604,7 @@ func writeMemoryMarkdown(p *printer, results []WorkloadResult, runtimes []string
 			m, ok := measurementFor(wr, rt)
 			text := "-"
 			if ok {
-				text = memCell(m, rt == lean)
+				text = memCellMD(m, rt == lean)
 			}
 			writef(&row, " %s |", text)
 		}
@@ -571,17 +623,49 @@ func writeStartupMarkdown(p *printer, results []WorkloadResult, runtimes []strin
 	p.line("")
 	p.line("## Startup cost")
 	p.line("")
-	p.line("Median wall-clock and peak memory of the startup workloads, the floor you pay on every invocation.")
+	p.line("Median wall-clock and peak memory of the startup workloads, the floor you pay on every invocation. The best in each column is shown in bold.")
 	p.line("")
 	p.line("| runtime | startup | memory |")
 	p.line("| --- | --- | --- |")
+	fastRT, leanRT := bestStartup(durs, mems)
 	for _, rt := range runtimes {
 		d, ok := durs[rt]
 		if !ok {
 			continue
 		}
-		p.printf("| %s | %s | %s |\n", rt, fmtDur(d), fmtBytes(mems[rt]))
+		dCell := fmtDur(d)
+		if rt == fastRT {
+			dCell = bold(dCell)
+		}
+		mCell := fmtBytes(mems[rt])
+		if rt == leanRT && mCell != "n/a" {
+			mCell = bold(mCell)
+		}
+		p.printf("| %s | %s | %s |\n", rt, dCell, mCell)
 	}
+}
+
+// bestStartup returns the runtime with the lowest startup duration and the one
+// with the lowest startup memory, so the Markdown startup table can bold each
+// column's winner. A tie keeps the first runtime seen, and an empty input yields
+// two empty names that match nobody.
+func bestStartup(durs map[string]time.Duration, mems map[string]int64) (fastRT, leanRT string) {
+	var bestDur time.Duration
+	for rt, d := range durs {
+		if fastRT == "" || d < bestDur {
+			fastRT, bestDur = rt, d
+		}
+	}
+	var bestMem int64
+	for rt, m := range mems {
+		if m <= 0 {
+			continue
+		}
+		if leanRT == "" || m < bestMem {
+			leanRT, bestMem = rt, m
+		}
+	}
+	return fastRT, leanRT
 }
 
 // writeCompileMarkdown renders the compile step for the runtimes that have one
@@ -680,16 +764,27 @@ func writeBinarySizeMarkdown(p *printer, results []WorkloadResult, runtimes []st
 	p.line("")
 	p.line("## Binary size")
 	p.line("")
-	p.line("Median size of the single executable each runtime compiles a workload into, lower is better. node stays the interpreter reference, so it compiles no binary and is left out.")
+	p.line("Median size of the single executable each runtime compiles a workload into, lower is better. node stays the interpreter reference, so it compiles no binary and is left out. The smallest binary is shown in bold.")
 	p.line("")
 	p.line("| runtime | binary |")
 	p.line("| --- | --- |")
+	smallest := ""
+	var smallestSize int64
+	for rt, s := range sizes {
+		if smallest == "" || s < smallestSize {
+			smallest, smallestSize = rt, s
+		}
+	}
 	for _, rt := range runtimes {
 		s, ok := sizes[rt]
 		if !ok {
 			continue
 		}
-		p.printf("| %s | %s |\n", rt, fmtBytes(s))
+		cell := fmtBytes(s)
+		if rt == smallest {
+			cell = bold(cell)
+		}
+		p.printf("| %s | %s |\n", rt, cell)
 	}
 }
 

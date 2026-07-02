@@ -99,6 +99,12 @@ func TestWriteMarkdown(t *testing.T) {
 	if !strings.Contains(out, "## Peak memory") {
 		t.Error("markdown missing memory table")
 	}
+	if !strings.Contains(out, "**30.0ms**") {
+		t.Error("markdown should bold the fastest wall-clock cell")
+	}
+	if !strings.Contains(out, "**12.0MB**") {
+		t.Error("markdown should bold the leanest memory cell")
+	}
 	if !strings.Contains(out, "## Startup cost") {
 		t.Error("markdown missing startup section")
 	}
