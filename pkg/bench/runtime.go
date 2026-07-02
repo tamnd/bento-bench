@@ -51,6 +51,17 @@ func (c *CompileStep) command(workload, out string) (string, []string) {
 // settles, while the default names the current subcommand.
 var AOTBuildArgs = []string{"build"}
 
+// BentoBin returns the bento binary the harness drives: BENTO_BIN when set, so
+// CI can point at a freshly built binary, and "bento" from PATH otherwise. The
+// golden emitter uses it too, so a workload's checked-in Go is produced by the
+// same bento that times it.
+func BentoBin() string {
+	if b := os.Getenv("BENTO_BIN"); b != "" {
+		return b
+	}
+	return "bento"
+}
+
 // DefaultRuntimes returns the four runtimes the harness knows about. bento is
 // located through BENTO_BIN when set so CI can point at a freshly built binary,
 // otherwise it is looked up on PATH like the others.
@@ -67,10 +78,7 @@ var AOTBuildArgs = []string{"build"}
 // clean single command the way the other three are. node therefore carries no
 // binary-size cell rather than a number it did not earn the same way.
 func DefaultRuntimes() []Runtime {
-	bento := os.Getenv("BENTO_BIN")
-	if bento == "" {
-		bento = "bento"
-	}
+	bento := BentoBin()
 	return []Runtime{
 		{Name: "node", Bin: "node"},
 		{Name: "deno", Compile: &CompileStep{Bin: "deno", Args: []string{"compile", "--quiet", "--allow-read", "--allow-write", "--allow-env"}}},
