@@ -25,6 +25,7 @@ func main() {
 		jsonOut = flag.String("json", "", "write raw results as JSON to this path")
 		mdOut   = flag.String("markdown", "", "write a Markdown summary to this path")
 		skip    = flag.String("skip", "", "comma-separated runtime names to leave out of this run (for example \"bento\" to skip the ahead-of-time build on a runner without the Go toolchain)")
+		goldens = flag.Bool("goldens", true, "before timing, refresh workloads/**/*.golden with the Go bento generates for each workload, writing only the files whose content changed")
 	)
 	flag.Parse()
 
@@ -46,6 +47,11 @@ func main() {
 	runtimes := bench.Without(bench.DefaultRuntimes(), *skip)
 	reportAvailability(runtimes)
 
+	if *goldens && bentoAvailable(runtimes) {
+		n := bench.EmitGoldens(context.Background(), bench.BentoBin(), workloads, os.Stderr)
+		fmt.Fprintf(os.Stderr, "Goldens: %d updated\n\n", n)
+	}
+
 	opts := bench.Options{Warmup: *warmup, Runs: *runs, Timeout: *timeout, Budget: *budget, Progress: os.Stderr}
 	results := bench.Run(context.Background(), workloads, runtimes, opts)
 
@@ -66,6 +72,19 @@ func main() {
 			os.Exit(2)
 		}
 	}
+}
+
+// bentoAvailable reports whether the bento runtime is in this run and can be
+// executed, so the golden refresh is skipped cleanly when the run left bento out
+// with --skip or the binary is not present, rather than logging a failure for
+// every workload.
+func bentoAvailable(runtimes []bench.Runtime) bool {
+	for _, rt := range runtimes {
+		if rt.Name == "bento" {
+			return rt.Available()
+		}
+	}
+	return false
 }
 
 func reportAvailability(runtimes []bench.Runtime) {
